@@ -1,0 +1,98 @@
+
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+
+language: en-US
+
+tone_instructions: >
+  Be a rigorous, precise and constructive senior software engineer.
+  Prioritize critical bugs, data integrity, security and reliability.
+  Avoid speculative or cosmetic comments.
+
+reviews:
+  profile: assertive
+  request_changes_workflow: false
+  high_level_summary: true
+  review_status: true
+  collapse_walkthrough: false
+
+  path_instructions:
+    - path: "**/*"
+      instructions: |
+        PROJECT: India Tourism Collector
+
+        PURPOSE:
+        Collect, normalize, deduplicate and store tourism places
+        across approximately 500 Indian cities, using a default
+        city search radius of 40 km.
+
+        TECHNOLOGY:
+        - Cloudflare Workers with TypeScript
+        - Supabase and PostgreSQL
+        - OpenStreetMap and Overpass API
+        - Wikidata SPARQL
+        - Wikipedia MediaWiki API
+        - Python batch processing scripts
+
+        PRIORITY 1 - DATA QUALITY:
+        - Detect duplicates across OSM, Wikidata and Wikipedia.
+        - Check coordinate accuracy and city-radius filtering.
+        - Prevent invalid or generic categories such as "yes".
+        - Preserve correct English and Indian-language names.
+        - Detect corrupted UTF-8 text and malformed data.
+        - Prevent duplicate records during repeated collection.
+        - Check descriptions for accuracy and attribution.
+        - Never invent ratings, popularity scores or source information.
+
+        PRIORITY 2 - SOURCE AND LICENSING:
+        - Verify source attribution and image licensing.
+        - Never publish images without verified licensing.
+        - Distinguish candidate image URLs from approved images.
+        - Respect OSM, Wikipedia and Wikimedia attribution.
+        - Never assign generic image licences without evidence.
+
+        PRIORITY 3 - RELIABILITY:
+        - Inspect API timeouts, rate limits and HTTP errors.
+        - Check retries, backoff and failure recovery.
+        - Detect incomplete collection runs.
+        - Check pagination, queues and batch limits.
+        - Prevent duplicate processing and race conditions.
+        - Record failures accurately.
+        - Check Cloudflare Worker execution limits.
+
+        PRIORITY 4 - DATABASE:
+        - Review Supabase schema, indexes and constraints.
+        - Check foreign keys, uniqueness and data consistency.
+        - Identify inefficient queries and missing indexes.
+        - Check SQL injection and authorization risks.
+        - Preserve database compatibility.
+
+        PRIORITY 5 - SECURITY:
+        - Never expose API keys, tokens or credentials.
+        - Check environment variable handling.
+        - Review admin endpoint authentication.
+        - Check authorization and privilege escalation.
+        - Never log secrets.
+
+        PRIORITY 6 - SCALABILITY:
+        - Evaluate performance for 500 Indian cities.
+        - Check memory usage, API volume and batch sizes.
+        - Identify N+1 queries and repeated requests.
+        - Ensure collection can resume after interruption.
+
+        REVIEW RULES:
+        - Report real defects, not hypothetical concerns.
+        - Explain impact and provide practical corrections.
+        - Identify affected files and code locations.
+        - Avoid unnecessary rewrites.
+        - Preserve working functionality and architecture.
+        - Do not silently change database schemas or APIs.
+        - Do not assume external services are unlimited or free.
+        - Distinguish confirmed bugs from suggestions.
+        - Never deploy changes automatically.
+
+  auto_review:
+    enabled: true
+    auto_incremental_review: true
+    drafts: false
+    base_branches:
+      - main
