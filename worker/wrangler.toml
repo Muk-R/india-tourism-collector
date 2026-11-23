@@ -1,0 +1,9 @@
+name = "india-tourism-collector"
+main = "src/index.ts"
+compatibility_date = "2026-11-22"
+
+[vars]
+DEFAULT_RADIUS_KM = "40"
+OVERPASS_URL = "https://maps.mail.ru/osm/tools/overpass/api/interpreter"
+WIKIDATA_SPARQL_URL = "https://query.wikidata.org/sparql"
+USER_AGENT = "LocaliseTourismCollector/1.0 (promoacc123123@gmail.com)"

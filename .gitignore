@@ -1,0 +1,11 @@
+# Worker local secrets and generated files
+worker/.dev.vars
+worker/.env
+worker/.env.production
+worker/.wrangler/
+worker/node_modules/
+worker/.pnpm-store/
+
+# Python cache
+__pycache__/
+*.py[cod]
