@@ -152,7 +152,7 @@ export function scoreImportance(kind: DiscoveryKind, tags: Record<string, unknow
     score = Math.max(score, 76);
     reasons.push("mountain_or_peak");
   }
-  if (["glacier", "geyser", "cliff"].includes(String(tags.natural))) {
+  if (["glacier", "geyser", "cliff", "rock"].includes(String(tags.natural))) {
     score = Math.max(score, 76);
     reasons.push("notable_natural_feature");
   }
