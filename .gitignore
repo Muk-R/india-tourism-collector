@@ -9,3 +9,6 @@ worker/.pnpm-store/
 # Python cache
 __pycache__/
 *.py[cod]
+
+# Per-worktree autonomous agent checkpoints
+**/.overnight/

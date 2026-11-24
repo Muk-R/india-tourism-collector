@@ -1,0 +1,436 @@
+﻿openapi: 3.1.0
+info:
+  title: Localise Tourism API
+  version: 0.1.0
+  description: Existing Worker endpoints and separately marked planned Localise APIs.
+servers:
+  - url: https://{workerHost}
+    description: Use the local Worker host during development.
+    variables:
+      workerHost:
+        default: localhost:8787
+tags:
+  - name: Health
+  - name: Public tourism
+  - name: Admin
+  - name: Planned Localise
+paths:
+  /health:
+    get:
+      tags: [Health]
+      summary: Worker health check
+      x-implementation-status: existing
+      security: []
+      responses:
+        '200':
+          description: Worker is responding.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, service]
+                properties:
+                  ok: { type: boolean }
+                  service: { type: string }
+  /public/cities:
+    get:
+      tags: [Public tourism]
+      summary: List enabled cities ordered by name
+      x-implementation-status: existing
+      security: []
+      responses:
+        '200':
+          description: Enabled cities.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/City' }
+  /public/places:
+    get:
+      tags: [Public tourism]
+      summary: List approved active places for a city
+      x-implementation-status: existing
+      security: []
+      parameters:
+        - name: city_id
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 100 }
+      responses:
+        '200':
+          description: Current city-place links ordered by relevance score.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/CityPlace' }
+        '400': { $ref: '#/components/responses/Error' }
+  /admin/stats:
+    get:
+      tags: [Admin]
+      summary: Counts for collection, queue, and review statuses
+      x-implementation-status: existing
+      security: [{ AdminBearer: [] }]
+      responses:
+        '200':
+          description: Status counts for cities, places, runs, cycles, queues, and discovery.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /admin/review:
+    get:
+      tags: [Admin]
+      summary: List current place links for review
+      x-implementation-status: existing
+      security: [{ AdminBearer: [] }]
+      parameters:
+        - name: city_id
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+        - name: status
+          in: query
+          schema: { type: string, enum: [pending, approved, rejected], default: pending }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+      responses:
+        '200':
+          description: Current links and source attribution.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ReviewItem' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /admin/review/{place_id}:
+    post:
+      tags: [Admin]
+      summary: Approve or reject a pending place
+      x-implementation-status: existing
+      security: [{ AdminBearer: [] }]
+      parameters:
+        - name: place_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [review_status]
+              properties:
+                review_status: { type: string, enum: [approved, rejected] }
+      responses:
+        '200': { description: Updated place record. }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { description: Place is absent or no longer pending. }
+  /admin/collect:
+    post:
+      tags: [Admin]
+      summary: Claim and process the next due city collection cycle
+      x-implementation-status: existing
+      security: [{ AdminBearer: [] }]
+      responses:
+        '200':
+          description: Collection outcome or idle response.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CollectionResult' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '502': { $ref: '#/components/responses/Error' }
+  /admin/collect-city/{city_id}:
+    post:
+      tags: [Admin]
+      summary: Claim or resume one city's collection cycle
+      x-implementation-status: existing
+      security: [{ AdminBearer: [] }]
+      parameters:
+        - name: city_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: radiusKm
+          in: query
+          description: Integer radius from 10 through 150 km; active cycles use their persisted radius.
+          schema: { type: integer, minimum: 10, maximum: 150 }
+        - name: rediscover
+          in: query
+          schema: { type: boolean, default: false }
+        - name: confirmLegacyRadius
+          in: query
+          description: Explicit confirmation for an uncertain historical radius.
+          schema: { type: boolean, default: false }
+      responses:
+        '200':
+          description: Collection cycle progress.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CollectionResult' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { description: City does not exist. }
+        '409': { $ref: '#/components/responses/Error' }
+        '502': { $ref: '#/components/responses/Error' }
+
+  /public/cities/{city_id}/summary:
+    get:
+      tags: [Planned Localise]
+      summary: Historical context and famous landmarks for a city
+      description: Planned only; no current Worker route implements this operation.
+      x-implementation-status: planned
+      security: []
+      parameters:
+        - name: city_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: City summary with source attribution.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CitySummary' }
+        '404': { $ref: '#/components/responses/Error' }
+  /public/lodgings:
+    get:
+      tags: [Planned Localise]
+      summary: Search accommodations by city, neighborhood, attraction, or corridor
+      description: Planned only. Missing source evidence leaves ratings/classification unknown.
+      x-implementation-status: planned
+      security: []
+      parameters:
+        - { name: city_id, in: query, required: true, schema: { type: string, format: uuid } }
+        - { name: near_place_id, in: query, schema: { type: string, format: uuid } }
+        - { name: corridor_id, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: Planned lodging results.
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Lodging' } }
+  /public/restaurants:
+    get:
+      tags: [Planned Localise]
+      summary: Search restaurants by city, neighborhood, attraction, or corridor
+      description: Planned only. Dietary labels require supporting source evidence.
+      x-implementation-status: planned
+      security: []
+      parameters:
+        - { name: city_id, in: query, required: true, schema: { type: string, format: uuid } }
+        - { name: near_place_id, in: query, schema: { type: string, format: uuid } }
+        - { name: corridor_id, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: Planned restaurant results.
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Restaurant' } }
+  /public/itineraries/plan:
+    post:
+      tags: [Planned Localise]
+      summary: Create a feasible itinerary proposal
+      x-implementation-status: planned
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ItineraryRequest' }
+      responses:
+        '200':
+          description: Itinerary and constraint notes.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Itinerary' }
+        '400': { $ref: '#/components/responses/Error' }
+  /public/itineraries/{itinerary_id}/reschedule:
+    post:
+      tags: [Planned Localise]
+      summary: Reschedule remaining itinerary activities after a delay
+      x-implementation-status: planned
+      security: []
+      parameters:
+        - { name: itinerary_id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [delay_minutes]
+              properties:
+                delay_minutes: { type: integer, minimum: 1, maximum: 1440 }
+                current_stop_id: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Recalculated remaining schedule.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Itinerary' }
+        '400': { $ref: '#/components/responses/Error' }
+
+components:
+  securitySchemes:
+    AdminBearer:
+      type: http
+      scheme: bearer
+      description: Existing admin routes use configured ADMIN_TOKEN. Never put its value in this file.
+  responses:
+    Error:
+      description: Request or upstream error.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Admin authentication failed.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+    City:
+      type: object
+      required: [id, name, latitude, longitude, radius_km]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        state_name: { type: [string, 'null'] }
+        latitude: { type: number }
+        longitude: { type: number }
+        radius_km: { type: integer, minimum: 10, maximum: 150 }
+    SourceAttribution:
+      type: object
+      properties:
+        source_name: { type: string }
+        source_id: { type: string }
+        source_url: { type: [string, 'null'], format: uri }
+        attribution: { type: [string, 'null'] }
+        license: { type: [string, 'null'] }
+        payload: {}
+    Place:
+      type: object
+      additionalProperties: true
+      properties:
+        id: { type: string, format: uuid }
+        canonical_name: { type: string }
+        category: { type: [string, 'null'] }
+        subcategory: { type: [string, 'null'] }
+        latitude: { type: number }
+        longitude: { type: number }
+        description: { type: [string, 'null'] }
+        description_source: { type: [string, 'null'] }
+        description_license: { type: [string, 'null'] }
+        wikipedia_url: { type: [string, 'null'], format: uri }
+        image_url: { type: [string, 'null'], format: uri }
+        image_author: { type: [string, 'null'] }
+        image_license: { type: [string, 'null'] }
+        importance_score: { type: [number, 'null'] }
+        quality_score: { type: [number, 'null'] }
+        review_status: { type: string, enum: [pending, approved, rejected] }
+        sources:
+          type: array
+          items: { $ref: '#/components/schemas/SourceAttribution' }
+    CityPlace:
+      type: object
+      required: [distance_km, place]
+      properties:
+        distance_km: { type: number }
+        relevance_score: { type: [number, 'null'] }
+        place: { $ref: '#/components/schemas/Place' }
+    ReviewItem:
+      type: object
+      properties:
+        distance_km: { type: number }
+        relevance_score: { type: [number, 'null'] }
+        place: { $ref: '#/components/schemas/Place' }
+    CollectionResult:
+      type: object
+      additionalProperties: true
+      properties:
+        city: { type: string }
+        cycle_id: { type: string, format: uuid }
+        radius_km: { type: integer, minimum: 10, maximum: 150 }
+        status: { type: string }
+        discovered: { type: object, additionalProperties: { type: integer } }
+        processed: { type: integer }
+        remaining: { type: integer }
+        queue: { type: object, additionalProperties: { type: integer } }
+        errors: { type: array, items: { type: string } }
+        retired_links: { type: integer }
+    CitySummary:
+      type: object
+      properties:
+        city_id: { type: string, format: uuid }
+        historical_significance: { type: [string, 'null'] }
+        landmarks: { type: array, items: { $ref: '#/components/schemas/Place' } }
+        sources: { type: array, items: { $ref: '#/components/schemas/SourceAttribution' } }
+    Lodging:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        latitude: { type: number }
+        longitude: { type: number }
+        budget_tier: { type: [string, 'null'], enum: [budget, mid_tier, premium, null] }
+        star_rating: { type: [integer, 'null'], minimum: 1, maximum: 5 }
+        accommodation_type: { type: [string, 'null'] }
+        rating_source: { type: [string, 'null'] }
+    Restaurant:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        latitude: { type: number }
+        longitude: { type: number }
+        dietary_classification: { type: [string, 'null'], enum: [vegetarian, non_vegetarian, unknown, null] }
+        cuisine_types: { type: array, items: { type: string } }
+        classification_source: { type: [string, 'null'] }
+    ItineraryRequest:
+      type: object
+      required: [city_id, start_date, days]
+      properties:
+        city_id: { type: string, format: uuid }
+        start_date: { type: string, format: date }
+        days: { type: integer, minimum: 1, maximum: 21 }
+        hotel_id: { type: [string, 'null'], format: uuid }
+        selected_place_ids: { type: array, items: { type: string, format: uuid } }
+        travel_mode: { type: string, enum: [driving, walking, transit], default: driving }
+    Itinerary:
+      type: object
+      required: [status, days]
+      properties:
+        itinerary_id: { type: string, format: uuid }
+        status: { type: string, enum: [proposed, feasible, partial, needs_review] }
+        days:
+          type: array
+          items:
+            type: object
+            properties:
+              date: { type: string, format: date }
+              activities:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    place_id: { type: [string, 'null'], format: uuid }
+                    kind: { type: string, enum: [visit, breakfast, lunch, dinner, rest, travel] }
+                    starts_at: { type: string, format: date-time }
+                    ends_at: { type: string, format: date-time }
+                    travel_minutes_from_previous: { type: [integer, 'null'], minimum: 0 }
+                    constraint_notes: { type: array, items: { type: string } }
