@@ -90,6 +90,7 @@ h2 { margin-bottom: 0; font-family: var(--serif); font-size: clamp(28px, 3.4vw, 
 .city-card-copy { display: flex; flex-direction: column; align-items: flex-start; padding: 21px 20px 18px; }
 .city-card-copy .eyebrow { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 8px; font-size: 9px; }
 .mock-tag { display: inline-block; padding: 3px 6px; color: #516756; border: 1px solid #c7d0c5; border-radius: 2px; background: #e8ede5; font-size: 8px; font-family: var(--sans); font-style: normal; font-weight: 700; letter-spacing: .1em; vertical-align: middle; white-space: nowrap; }
+.data-tag { display: inline-block; padding: 3px 6px; color: #53665f; border: 1px solid #cbd8d0; border-radius: 2px; background: #edf2ed; font-size: 8px; font-family: var(--sans); font-weight: 700; letter-spacing: .1em; vertical-align: middle; white-space: nowrap; }
 .city-card h3 { margin: 12px 0 6px; font-family: var(--serif); font-size: 25px; font-weight: 500; letter-spacing: -.025em; }
 .city-card-copy > p:not(.eyebrow) { margin-bottom: 14px; color: var(--muted); font-size: 11px; line-height: 1.6; }
 .city-card .text-link { margin-top: auto; font-size: 10px; }
@@ -134,6 +135,11 @@ h2 { margin-bottom: 0; font-family: var(--serif); font-size: clamp(28px, 3.4vw, 
 .place-copy .eyebrow { margin: 1px 0 4px; font-size: 8px; }
 .place-copy h3 { margin-bottom: 5px; font-family: var(--serif); font-size: 16px; font-weight: 600; line-height: 1.25; }
 .place-copy > p:last-child { margin: 0; color: #737a73; font-size: 9px; line-height: 1.45; }
+.place-meta { margin: 5px 0 0; color: #737a73; font-size: 9px; line-height: 1.45; overflow-wrap: anywhere; }
+.place-meta a { color: #516756; text-decoration: underline; text-underline-offset: 2px; }
+.place-scores { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+.score-label { padding: 3px 5px; border: 1px solid #e0e1d9; border-radius: 3px; color: #737a73; font-size: 8px; line-height: 1.2; }
+.place-glyph img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
 .save-button { width: 30px; height: 30px; flex: 0 0 30px; padding: 0; border: 1px solid #e0e1d9; border-radius: 50%; color: #617262; background: #faf9f5; font-size: 16px; cursor: pointer; }
 .save-button.is-saved { color: #9e5143; background: #f8eae5; border-color: #efd0c7; }
 .city-columns { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 21px; padding: 18px 0 46px; }

@@ -45,10 +45,10 @@ export const mockItinerary = {
   stops: ["Choose a place to begin", "Leave room for a pause", "Follow what catches your eye"],
 };
 
-export function getView(hash) {
+export function getView(hash, cities = mockCities) {
   const [route = "home", cityId] = (hash || "#home").replace(/^#/, "").split("/");
   if (route === "city") {
-    const city = mockCities.find((item) => item.id === cityId);
+    const city = cities.find((item) => item.id === cityId);
     return city ? { type: "city", city } : { type: "not-found" };
   }
   return ["home", "itineraries", "social", "saved"].includes(route)
@@ -56,7 +56,7 @@ export function getView(hash) {
     : { type: "not-found" };
 }
 
-export function filterCities(query) {
+export function filterCities(query, cities = mockCities) {
   const normalized = query.trim().toLocaleLowerCase();
-  return normalized ? mockCities.filter((city) => city.name.toLocaleLowerCase().includes(normalized)) : mockCities;
+  return normalized ? cities.filter((city) => city.name.toLocaleLowerCase().includes(normalized)) : cities;
 }

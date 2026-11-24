@@ -19,6 +19,12 @@ test("city search is case insensitive, trimmed, and preserves all cities when bl
   assert.equal(filterCities("  ").length, mockCities.length);
 });
 
+test("dynamic API city records resolve as routable and searchable cities", () => {
+  const apiCities = [{ id: "8a0ddc93-1111-4111-8111-111111111111", name: "Mysuru", state_name: "Karnataka" }];
+  assert.equal(getView("#city/8a0ddc93-1111-4111-8111-111111111111", apiCities).city, apiCities[0]);
+  assert.deepEqual(filterCities("mys", apiCities), apiCities);
+});
+
 test("mock records avoid unsupported ratings and dietary claims", () => {
   const text = JSON.stringify(mockCities);
   assert.match(text, /Mock city history summary/);
@@ -45,6 +51,7 @@ test("document exposes accessible landmark navigation and mobile layout", async 
   assert.match(css, /prefers-reduced-motion/);
   assert.match(app, /aria-current/);
   assert.match(app, /role="status"/);
-  assert.match(app, /role="alert"/);
+  assert.match(app, /title\.includes\("could not"\) \? "alert" : "status"/);
   assert.match(app, /aria-busy/);
+  assert.match(html, /runtime-config\.js/);
 });
