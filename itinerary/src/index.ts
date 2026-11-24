@@ -19,6 +19,8 @@ export type TripRequest = {
   hotelId: string;
   /** Optional location for the first day after a delay. */
   startingLocationId?: string;
+  /** Lower bound for fixed activities when regenerating a delayed first day. */
+  earliestStartTime?: string;
   places: Place[];
   selectedPlaceIds?: string[];
   /** Road travel estimates in minutes. Missing or null values stay explicitly unknown. */
@@ -168,19 +170,31 @@ export function planItinerary(input: TripRequest): Itinerary {
   const reasons = new Map<string, string>();
   const scheduled = new Set<string>();
   let returnLegImpossible = false;
+  let omittedFixedActivities = 0;
   const offset = input.utcOffset;
 
   for (let dayIndex = 0; dayIndex < input.days; dayIndex++) {
     const date = addDays(input.startDate, dayIndex);
+    const firstDayStart = dayIndex === 0 && input.earliestStartTime ? minute(input.earliestStartTime) : null;
+    const dayFixed = firstDayStart === null ? fixed : fixed.filter((item) => item.start >= firstDayStart);
+    omittedFixedActivities += fixed.length - dayFixed.length;
     const activities: Activity[] = [];
-    for (const item of fixed) {
+    for (const item of dayFixed) {
       activities.push(activity({ date, offset, start: item.start, end: item.end, kind: item.kind, notes: item.kind === "rest" ? ["Scheduled rest break."] : [] }));
     }
     let location = dayIndex === 0 ? input.startingLocationId ?? input.hotelId : input.hotelId;
-    let cursor = bounds.start;
+    let cursor = Math.max(bounds.start, firstDayStart ?? bounds.start);
     let lastVisitEnd: number | undefined;
     let dayHasVisit = false;
-    for (const slot of [{ start: bounds.start, end: fixed[0].start > bounds.start ? fixed[0].start : bounds.start }, ...fixed.map((f, i) => ({ start: Math.max(bounds.start, f.end), end: fixed[i + 1]?.start ?? bounds.end }))]) {
+    const slots: Array<{ start: number; end: number }> = [];
+    let slotStart = cursor;
+    for (const fixedActivity of dayFixed) {
+      const gapEnd = Math.min(bounds.end, fixedActivity.start);
+      if (gapEnd > slotStart) slots.push({ start: slotStart, end: gapEnd });
+      slotStart = Math.max(slotStart, fixedActivity.end);
+    }
+    if (slotStart < bounds.end) slots.push({ start: slotStart, end: bounds.end });
+    for (const slot of slots) {
       cursor = Math.max(cursor, slot.start);
       while (cursor < slot.end) {
         let choice: { place: Place; travel: number; start: number; uncertainty?: "unknown_hours" } | undefined;
@@ -251,6 +265,7 @@ export function planItinerary(input: TripRequest): Itinerary {
   const anyUncertain = unknownHours || unscheduled.length > 0 || days.some((day) => day.activities.some((a) => a.uncertainty !== undefined));
   const constraintNotes = [
     ...(unknownHours ? ["Some scheduled visits have unknown opening hours."] : []),
+    ...(omittedFixedActivities ? ["Meal or rest windows before the rescheduled start were omitted."] : []),
     ...(days.some((day) => day.activities.some((a) => a.uncertainty === "unknown_travel")) ? ["One or more travel legs have unknown estimates; those activities have no fabricated times."] : []),
     ...(returnLegImpossible ? ["A known return leg does not fit before the day end; the proposal needs review."] : []),
     ...(unresolvedSelected ? ["One or more selected places remain unscheduled; see unscheduled for the reason."] : []),
@@ -278,6 +293,7 @@ export function rescheduleItinerary(original: Itinerary, request: TripRequest, d
   const currentDay = original.days[currentDayIndex];
   const currentActivity = currentDay?.activities.find((activity) => activity.kind === "visit" && activity.place_id === currentPlaceId);
   let start = currentDay?.date ?? original.days[0]?.date ?? request.startDate;
+  const originalRescheduleDate = start;
   let startMinute = currentActivity?.ends_at
     ? minute(currentActivity.ends_at.slice(11, 16)) + delayMinutes
     : minute(request.policy?.dayStart ?? DEFAULT_POLICY.dayStart) + delayMinutes;
@@ -295,7 +311,9 @@ export function rescheduleItinerary(original: Itinerary, request: TripRequest, d
   }
   startMinute = Math.max(startMinute, minute(request.policy?.dayStart ?? DEFAULT_POLICY.dayStart));
   const futureSelected = selected.filter((id) => remainingIds.has(id));
-  const updated = planItinerary({ ...request, startDate: start, days: remainingDays, places: remainingPlaces, startingLocationId: current?.id, selectedPlaceIds: futureSelected, policy: { ...request.policy, dayStart: `${String(Math.floor(startMinute / 60)).padStart(2, "0")}:${String(startMinute % 60).padStart(2, "0")}` } });
+  const rescheduledDayStart = `${String(Math.floor(startMinute / 60)).padStart(2, "0")}:${String(startMinute % 60).padStart(2, "0")}`;
+  const earliestStartTime = start === originalRescheduleDate ? rescheduledDayStart : undefined;
+  const updated = planItinerary({ ...request, startDate: start, days: remainingDays, places: remainingPlaces, startingLocationId: current?.id, selectedPlaceIds: futureSelected, earliestStartTime, policy: { ...request.policy, dayStart: rescheduledDayStart } });
   updated.selected_place_ids = selected;
   const retained = new Set(updated.days.flatMap((day) => day.activities.filter((a) => a.kind === "visit").map((a) => a.place_id)));
   const priorUnscheduled = original.unscheduled.filter((stop) => stop.selected);

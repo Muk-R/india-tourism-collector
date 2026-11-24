@@ -118,6 +118,18 @@ test("delay rescheduling starts from the current stop and preserves every select
   assert.throws(() => rescheduleItinerary(original, trip, 35, "missing"), /scheduled visit/);
 });
 
+test("rescheduling omits same-day fixed activities before the delayed start", () => {
+  const trip = mockTrip();
+  const original = planItinerary(trip);
+  const currentVisit = flatten(original).find((activity) => activity.kind === "visit" && activity.place_id === "a");
+  assert.ok(currentVisit?.ends_at);
+  const earliest = Date.parse(currentVisit.ends_at) + 90 * 60_000;
+  const result = rescheduleItinerary(original, trip, 90, "a");
+  const currentDay = result.days.find((day) => day.date === currentVisit.starts_at.slice(0, 10));
+  assert.ok(currentDay);
+  const beforeDelayedStart = currentDay.activities.filter((activity) => activity.starts_at && Date.parse(activity.starts_at) < earliest);
+  assert.deepEqual(beforeDelayedStart, []);
+});
 test("invalid trip window and date offset fail fast", () => {
   assert.throws(() => planItinerary(mockTrip({ days: 22 })), /days must be/);
   assert.throws(() => planItinerary(mockTrip({ utcOffset: "local" })), /explicit offset/);
