@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -14,6 +14,7 @@ main{max-width:1440px;margin:auto}header{display:flex;justify-content:space-betw
 <body>
 <main>
 <header><div><p class="subtle">LOCAL DEVELOPMENT · LOOPBACK ONLY</p><h1>Localise Mission Control</h1><p class="subtle" id="updated">Waiting for status…</p></div><button id="stop" type="button">Stop dashboard</button></header>
+<section class="panel section" aria-label="Overall setup progress"><h2>Overall setup progress</h2><p class="meta" id="overall-label">Waiting for evidence-backed milestones</p><progress id="overall-progress" max="100" value="0"></progress></section>
 <section class="grid totals" id="totals" aria-label="Verified pilot metrics"></section>
 <section class="grid agents" id="agents" aria-label="Development agents"></section>
 <section class="panel section"><h2>Recent activity</h2><ul class="list activity" id="activity"></ul></section>
@@ -51,13 +52,17 @@ function drawAgents(agents){
 }
 async function refresh(){
  try{const r=await fetch('/api/status',{cache:'no-store'});const s=await r.json();document.getElementById('updated').textContent='Run '+s.run_id+' · started '+(s.started_at_utc||'unknown')+' · refreshed '+new Date().toLocaleTimeString();
-  drawMetricCards(s);drawAgents(s.agents||[]);
+  const agents=s.agents||[];const evidenced=agents.filter(a=>typeof a.progress_percent==='number');
+  const complete=evidenced.reduce((n,a)=>n+a.progress_percent,0);const overall=evidenced.length?Math.round(complete/evidenced.length):null;
+  document.getElementById('overall-label').textContent=overall===null?'No evidence-backed milestones yet':overall+'% average across '+evidenced.length+' agents with verified milestones';
+  const overallBar=document.getElementById('overall-progress');overallBar.value=overall===null?0:overall;
+  drawMetricCards(s);drawAgents(agents);
   const activity=document.getElementById('activity');activity.replaceChildren();list(activity,s.recent_activity,'No JSONL activity yet');
   document.getElementById('storage').textContent='Storage checks are recorded every 15 minutes during collection. Below 30 GB is a warning; below 20 GB pauses storage-intensive work. Image URLs and licensing metadata are retained instead of bulk photo downloads.';
  }catch(e){document.getElementById('updated').textContent='Dashboard status unavailable: '+e.message}
 }
 document.getElementById('stop').addEventListener('click',async()=>{await fetch('/api/shutdown',{method:'POST'});document.getElementById('updated').textContent='Dashboard stopped.'});
-refresh();setInterval(refresh,5000);
+refresh();setInterval(refresh,120000);
 </script>
 </body>
 </html>

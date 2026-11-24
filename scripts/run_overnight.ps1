@@ -1,4 +1,4 @@
-﻿[CmdletBinding()]
+[CmdletBinding()]
 param([string]$ResumeRunId)
 
 $ErrorActionPreference = 'Stop'
@@ -206,7 +206,7 @@ try {
       $env:GIT_CONFIG_COUNT = '1'
       $env:GIT_CONFIG_KEY_0 = 'safe.directory'
       $env:GIT_CONFIG_VALUE_0 = $Workspace
-      $argsForCodex = @('exec','--json','--sandbox','workspace-write','--approve-for-me','--config','sandbox_workspace_write.network_access=true','--add-dir',$GitCommon,'-C',$Workspace,$prompt)
+      $argsForCodex = @('exec','--json','--approve-for-me','--config','sandbox_workspace_write.network_access=true','-C',$Workspace,$prompt)
 
       & $CodexPath @argsForCodex 2>&1 | ForEach-Object {
         $line = [string]$_

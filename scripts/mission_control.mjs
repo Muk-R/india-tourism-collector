@@ -1,4 +1,4 @@
-﻿import http from 'node:http';
+import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -20,10 +20,10 @@ const stopPath = path.join(runDir,'dashboard-stop');
 let previousCpu = null;
 let shuttingDown = false;
 
-function readJson(file) { try { return JSON.parse(fs.readFileSync(file,'utf8')); } catch { return null; } }
+function readJson(file) { try { return JSON.parse(fs.readFileSync(file,'utf8').replace(/^\uFEFF/,'')); } catch { return null; } }
 function safeText(value) { return String(value||'').replace(/Bearer\s+[^\s,;]+/gi,'Bearer [REDACTED]').replace(/sb_secret_[A-Za-z0-9_-]+/g,'[REDACTED]').replace(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g,'[REDACTED]').replace(/(password|token|secret|authorization)\s*[:=]\s*[^\s,;]+/gi,'$1=[REDACTED]').replace(/:\/\/[^/@\s]+:[^/@\s]+@/g,'://[REDACTED]@'); }
 function readJsonLines(file, limit=12) {
-  try { return fs.readFileSync(file,'utf8').split(/\r?\n/).filter(Boolean).slice(-limit).flatMap(line=>{try{return [JSON.parse(line)]}catch{return []}}); } catch { return []; }
+  try { return fs.readFileSync(file,'utf8').replace(/^\uFEFF/,'').split(/\r?\n/).filter(Boolean).slice(-limit).flatMap(line=>{try{return [JSON.parse(line)]}catch{return []}}); } catch { return []; }
 }
 function existsEvidence(workspace, evidence) {
   if (typeof evidence !== 'string' || !evidence || path.isAbsolute(evidence)) return false;
@@ -54,7 +54,7 @@ function cleanCheckpoint(workspace) {
   if(!c || typeof c!=='object') return null;
   const milestones=Array.isArray(c.milestones)?c.milestones:[];
   const completed=milestones.filter(m=>m && m.status==='completed' && existsEvidence(workspace,m.evidence));
-    const tests=checkpoint?checkpoint.tests:[];
+  const tests=Array.isArray(c.tests)?c.tests:[];
   const metrics={};
   const allowed=['attractions_collected','hotels_collected','restaurants_collected','cities_completed','itineraries_generated','itineraries_validated'];
   for(const key of allowed){
@@ -88,7 +88,7 @@ function buildStatus() {
     if(pid){try{process.kill(pid,0);alive=true}catch{}}
     let status=state&&state.status||'not_started';
     if(status==='running'&&!alive)status='stopped';
-    const tests=checkpoint?checkpoint.tests:[];
+  const tests=checkpoint?checkpoint.tests:[];
     for(const t of tests){if(t.result==='passed')totals.tests_passed=(totals.tests_passed||0)+1;if(t.result==='failed')totals.tests_failed=(totals.tests_failed||0)+1}
     if(checkpoint) for(const [k,v] of Object.entries(checkpoint.metrics)) totals[k]=(totals[k]||0)+v;
     const events=readJsonLines(path.join(runDir,'logs',name+'.jsonl'),8);
