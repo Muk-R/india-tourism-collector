@@ -1,0 +1,63 @@
+﻿<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="refresh" content="0;url=#">
+<title>Localise Mission Control</title>
+<style>
+:root{color-scheme:dark;--bg:#101815;--panel:#19231f;--line:#2b3932;--text:#e6eee8;--muted:#a4b2a8;--accent:#9bd3a8;--warn:#f5c878;--bad:#f28d85}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at top,#20332a 0,#101815 48rem);color:var(--text);font:15px/1.5 system-ui,Segoe UI,sans-serif;padding:24px}
+main{max-width:1440px;margin:auto}header{display:flex;justify-content:space-between;gap:18px;align-items:end;margin-bottom:20px}h1{font-size:clamp(1.8rem,4vw,2.8rem);margin:0}h2{font-size:1.05rem;margin:0 0 12px}h3{font-size:.95rem;margin:0}p{margin:.35rem 0}.subtle,.meta{color:var(--muted);font-size:.86rem}.grid{display:grid;gap:14px}.totals{grid-template-columns:repeat(auto-fit,minmax(165px,1fr));margin-bottom:16px}.agents{grid-template-columns:repeat(auto-fit,minmax(310px,1fr))}.panel{background:linear-gradient(145deg,rgba(35,49,42,.94),rgba(23,32,28,.94));border:1px solid var(--line);border-radius:16px;padding:16px;box-shadow:0 10px 30px #0003}.total{font-size:1.75rem;font-weight:700;color:var(--accent)}.agent-head{display:flex;justify-content:space-between;gap:12px;align-items:center}.badge{border:1px solid var(--line);border-radius:999px;padding:2px 9px;font-size:.78rem;text-transform:uppercase}.completed{color:var(--accent)}.running{color:#8ed6ff}.failed,.stopped,.blocked{color:var(--bad)}.paused,.warning{color:var(--warn)}progress{width:100%;height:10px;accent-color:var(--accent);margin:8px 0}.row{display:flex;justify-content:space-between;gap:12px}.section{margin-top:12px}.list{padding-left:18px;margin:.4rem 0}.list li{margin:.2rem 0}.activity{max-height:140px;overflow:auto}.footer{margin:16px 0;color:var(--muted);font-size:.82rem}button{background:#24352b;color:var(--text);border:1px solid #47624f;border-radius:9px;padding:7px 11px;cursor:pointer}button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}@media(max-width:600px){body{padding:14px}header{align-items:start;flex-direction:column}.agents{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<main>
+<header><div><p class="subtle">LOCAL DEVELOPMENT · LOOPBACK ONLY</p><h1>Localise Mission Control</h1><p class="subtle" id="updated">Waiting for status…</p></div><button id="stop" type="button">Stop dashboard</button></header>
+<section class="grid totals" id="totals" aria-label="Verified pilot metrics"></section>
+<section class="grid agents" id="agents" aria-label="Development agents"></section>
+<section class="panel section"><h2>Recent activity</h2><ul class="list activity" id="activity"></ul></section>
+<p class="footer" id="storage"></p>
+</main>
+<script>
+const metricNames=[
+  ['attractions_collected','Attractions collected'],
+  ['hotels_collected','Hotels collected'],
+  ['restaurants_collected','Restaurants collected'],
+  ['cities_completed','Cities completed'],
+  ['itineraries_generated','Itineraries generated'],
+  ['itineraries_validated','Itineraries validated']
+];
+function el(tag,cls,text){const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=String(text);return n}
+function list(parent,items,empty){if(!items||!items.length){parent.append(el('li','subtle',empty));return}for(const item of items){parent.append(el('li','',typeof item==='string'?item:JSON.stringify(item)))}}
+function drawMetricCards(summary){
+ const root=document.getElementById('totals');root.replaceChildren();
+ for(const [key,label] of metricNames){const card=el('article','panel');card.append(el('h2','',label));const value=summary.metrics&&summary.metrics[key];card.append(el('div','total',value===undefined?'—':value));card.append(el('p','meta',value===undefined?'No verified local evidence yet':'Evidence-backed checkpoint/artifact'));root.append(card)}
+ const disk=el('article','panel');disk.append(el('h2','','C: free space'));disk.append(el('div','total',summary.storage&&summary.storage.free_gb!==undefined?summary.storage.free_gb+' GB':'—'));disk.append(el('p','meta',summary.storage?summary.storage.status:'No disk sample'));root.append(disk);
+ const resources=el('article','panel');resources.append(el('h2','','System resources'));resources.append(el('div','total',summary.resources&&summary.resources.memory_used_gb!==undefined?summary.resources.memory_used_gb+' GB RAM':'—'));resources.append(el('p','meta','CPU '+(summary.resources&&summary.resources.cpu_percent!==null?summary.resources.cpu_percent+'%':'unavailable')));root.append(resources)
+}
+function drawAgents(agents){
+ const root=document.getElementById('agents');root.replaceChildren();
+ for(const a of agents){const card=el('article','panel');const head=el('div','agent-head');head.append(el('h2','',a.agent));head.append(el('span','badge '+a.status,a.status));card.append(head);
+  card.append(el('p','meta','Agent PID '+(a.process_id||'—')+' · supervisor '+(a.runner_pid||'—')+' · retry '+(a.attempt||0)+' · elapsed '+(a.elapsed||'—')));
+  card.append(el('p','',a.current_task||'No current task checkpoint'));
+  if(typeof a.progress_percent==='number'){const p=el('progress');p.max=100;p.value=a.progress_percent;card.append(p);card.append(el('p','meta',a.progress_percent+'% evidenced milestones'))}else{card.append(el('p','meta','Progress unavailable until milestones include evidence files'))}
+  const completed=el('div','section');completed.append(el('h3','','Completed milestones'));const cl=el('ul','list');list(cl,a.completed_milestones,'None reported with evidence');completed.append(cl);card.append(completed);
+  const tests=el('div','section');tests.append(el('h3','','Automated tests'));const tl=el('ul','list');list(tl,a.tests,'No test checkpoint yet');tests.append(tl);card.append(tests);
+  const issues=el('div','section');issues.append(el('h3','','Errors and blockers'));const il=el('ul','list');list(il,(a.errors||[]).concat(a.blockers||[]),'None reported');issues.append(il);card.append(issues);
+  card.append(el('p','meta','Resources: '+(a.resource_usage||'unavailable')));
+  root.append(card)
+ }
+}
+async function refresh(){
+ try{const r=await fetch('/api/status',{cache:'no-store'});const s=await r.json();document.getElementById('updated').textContent='Run '+s.run_id+' · started '+(s.started_at_utc||'unknown')+' · refreshed '+new Date().toLocaleTimeString();
+  drawMetricCards(s);drawAgents(s.agents||[]);
+  const activity=document.getElementById('activity');activity.replaceChildren();list(activity,s.recent_activity,'No JSONL activity yet');
+  document.getElementById('storage').textContent='Storage checks are recorded every 15 minutes during collection. Below 30 GB is a warning; below 20 GB pauses storage-intensive work. Image URLs and licensing metadata are retained instead of bulk photo downloads.';
+ }catch(e){document.getElementById('updated').textContent='Dashboard status unavailable: '+e.message}
+}
+document.getElementById('stop').addEventListener('click',async()=>{await fetch('/api/shutdown',{method:'POST'});document.getElementById('updated').textContent='Dashboard stopped.'});
+refresh();setInterval(refresh,5000);
+</script>
+</body>
+</html>

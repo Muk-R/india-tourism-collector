@@ -6,7 +6,7 @@ Read docs/PRODUCT_REQUIREMENTS.md, docs/ARCHITECTURE.md, docs/DEVELOPMENT_TASKS.
 Work only in your assigned worktree and branch. Follow the ownership table in docs/DEVELOPMENT_TASKS.md. Integration exclusively owns worker/src/index.ts until stable module boundaries are established. Do not edit files owned by another agent. Put interface requests and blockers in your own ignored .overnight/progress.json. Do not update shared docs/PROGRESS.md while agents run.
 
 ## Workflow
-Inspect Git status and existing code first. Preserve all current work. Make focused changes, add tests, run relevant checks, review the diff, and create local milestone commits when acceptance criteria pass. Never push. Keep a checkpoint in .overnight/progress.json with completed work, current step, tests, commit hashes, next actions, and blockers. Do not commit the checkpoint.
+Inspect Git status and existing code first. Preserve all current work. Make focused changes, add tests, run relevant checks, review the diff, and create local milestone commits when acceptance criteria pass. Never push. Keep .overnight/progress.json as valid JSON with only agent, status, completed, current, tests, commits, next, blockers, and updated_at_utc fields. Do not include secret values, environment data, or credentials. Do not commit the checkpoint.
 
 Label mock data clearly. Never describe mocks as verified or collected data. Do not invent facts, hours, durations, dietary labels, hotel ratings, historical claims, or source attribution.
 
