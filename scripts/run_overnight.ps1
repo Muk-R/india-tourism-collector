@@ -34,7 +34,7 @@ try {
   $agentsDir = Join-Path $runDir 'agents'
   New-Item -ItemType Directory -Force -Path $logsDir, $agentsDir | Out-Null
 
-  $gitCommon = (& git -C $integration rev-parse --path-format=absolute --git-common-dir).Trim()
+  $gitCommon = (& git -c "safe.directory=$integration" -C $integration rev-parse --path-format=absolute --git-common-dir).Trim()
   if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $gitCommon -PathType Container)) {
     throw 'Unable to locate shared Git metadata for approved local commits.'
   }
@@ -108,10 +108,18 @@ try {
       $dashboardProcess.Refresh()
       if ($dashboardProcess.HasExited) { break }
     }
-    if (-not $dashboardInfo) { throw 'Mission Control failed to start; inspect timestamped dashboard stderr log.' }
+    if (-not $dashboardInfo) {
+      [ordered]@{ timestamp_utc = [DateTime]::UtcNow.ToString('o'); event = 'dashboard_unavailable'; logs = 'timestamped dashboard stderr log' } |
+        ConvertTo-Json -Compress | Add-Content -LiteralPath (Join-Path $logsDir 'orchestrator.jsonl') -Encoding utf8
+    }
   }
-  $dashboardUrl = [string]$dashboardInfo.url
-  $dashboardPid = [int]$dashboardInfo.pid
+  if ($dashboardInfo) {
+    $dashboardUrl = [string]$dashboardInfo.url
+    $dashboardPid = [int]$dashboardInfo.pid
+  } else {
+    $dashboardUrl = $null
+    $dashboardPid = $null
+  }
   [ordered]@{ run_id = $runId; status = 'running'; codex_cli = $codexVersion; started_at_utc = $runStarted; dashboard_url = $dashboardUrl; dashboard_pid = $dashboardPid } |
     ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $statusPath -Encoding utf8
   Write-Output ('Mission Control: ' + $dashboardUrl)
@@ -201,16 +209,22 @@ try {
       $argsForCodex = @('exec','--json','--sandbox','workspace-write','--approve-for-me','--config','sandbox_workspace_write.network_access=true','--add-dir',$GitCommon,'-C',$Workspace,$prompt)
 
       & $CodexPath @argsForCodex 2>&1 | ForEach-Object {
+        $line = [string]$_
         $eventType = 'non_json_output_suppressed'
+        if ($line -match 'value is required|requires a value') { $eventType = 'cli_missing_argument' }
+        elseif ($line -match 'unrecognized option|unexpected argument|unknown field|unknown key') { $eventType = 'cli_argument_or_config_error' }
+        elseif ($line -match '(?i)not logged in|authentication|unauthorized') { $eventType = 'cli_authentication_error' }
+        elseif ($line -match '(?i)sandbox|permission denied|access is denied') { $eventType = 'sandbox_permission_error' }
+        elseif ($line -match '(?i)network|dns|connection refused') { $eventType = 'network_error' }
         try {
-          $ev = ([string]$_) | ConvertFrom-Json -ErrorAction Stop
+          $ev = $line | ConvertFrom-Json -ErrorAction Stop
           if ($ev.type) { $eventType = [string]$ev.type }
         } catch {}
         [ordered]@{ timestamp_utc = [DateTime]::UtcNow.ToString('o'); agent = $Name; attempt = $attempt; turn = $turn; event = $eventType } |
           ConvertTo-Json -Compress | Add-Content -LiteralPath $eventLog -Encoding utf8
       }
       $exitCode = $LASTEXITCODE
-      $head = (& git -C $Workspace rev-parse HEAD 2>$null)
+      $head = (& git -c "safe.directory=$Workspace" -C $Workspace rev-parse HEAD 2>$null)
       if ($LASTEXITCODE -ne 0) { $head = $null }
 
       $checkpointData = $null
@@ -303,7 +317,7 @@ try {
           ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $agentsDir ($definition.Name + '.json')) -Encoding utf8
         continue
       }
-      $actualBranch = (& git -C $workspace branch --show-current).Trim()
+      $actualBranch = (& git -c "safe.directory=$workspace" -C $workspace branch --show-current).Trim()
       if ($LASTEXITCODE -ne 0 -or $actualBranch -ne $definition.Branch) { throw "Branch validation failed for $($definition.Name)." }
       $taskFile = 'docs/tasks/' + $definition.Name + '.md'
       $jobs += Start-Job -Name $definition.Name -ArgumentList @(
@@ -343,7 +357,7 @@ try {
     $state = Get-AgentState $definition.Name
     $workspace = Join-Path $worktreeRoot $definition.Directory
     $head = $null
-    if (Test-Path -LiteralPath $workspace) { $head = (& git -C $workspace rev-parse HEAD 2>$null); if ($LASTEXITCODE -ne 0) { $head = $null } }
+    if (Test-Path -LiteralPath $workspace) { $head = (& git -c "safe.directory=$workspace" -C $workspace rev-parse HEAD 2>$null); if ($LASTEXITCODE -ne 0) { $head = $null } }
     $checkpointSummary = $null
     if ($state -and $state.checkpoint -and (Test-Path -LiteralPath $state.checkpoint)) {
       try {

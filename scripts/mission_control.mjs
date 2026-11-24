@@ -54,7 +54,7 @@ function cleanCheckpoint(workspace) {
   if(!c || typeof c!=='object') return null;
   const milestones=Array.isArray(c.milestones)?c.milestones:[];
   const completed=milestones.filter(m=>m && m.status==='completed' && existsEvidence(workspace,m.evidence));
-  const tests=Array.isArray(c.tests)?c.tests.slice(-12).map(t=>({name:safeText(t.name||'Automated check'),result:safeText(t.result||'unknown'),evidence:existsEvidence(workspace,t.evidence)?t.evidence:null})): [];
+    const tests=checkpoint?checkpoint.tests:[];
   const metrics={};
   const allowed=['attractions_collected','hotels_collected','restaurants_collected','cities_completed','itineraries_generated','itineraries_validated'];
   for(const key of allowed){
@@ -88,7 +88,7 @@ function buildStatus() {
     if(pid){try{process.kill(pid,0);alive=true}catch{}}
     let status=state&&state.status||'not_started';
     if(status==='running'&&!alive)status='stopped';
-  const tests=Array.isArray(c.tests)?c.tests.slice(-12).map(t=>({name:safeText(t.name||'Automated check'),result:safeText(t.result||'unknown'),evidence:existsEvidence(workspace,t.evidence)?t.evidence:null})): [];
+    const tests=checkpoint?checkpoint.tests:[];
     for(const t of tests){if(t.result==='passed')totals.tests_passed=(totals.tests_passed||0)+1;if(t.result==='failed')totals.tests_failed=(totals.tests_failed||0)+1}
     if(checkpoint) for(const [k,v] of Object.entries(checkpoint.metrics)) totals[k]=(totals[k]||0)+v;
     const events=readJsonLines(path.join(runDir,'logs',name+'.jsonl'),8);
