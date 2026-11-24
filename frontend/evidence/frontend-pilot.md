@@ -6,7 +6,7 @@ Date: 2026-11-24
 
 - Mobile-first home, city guide, itinerary, social, and saved views with keyboard-accessible hash navigation.
 - Responsive layouts use a 760 px and 480 px mobile/tablet breakpoint and expand through desktop widths, with a 1440 px wide layout adjustment.
-- Accessible skip link, named navigation, visible focus styles, reduced-motion support, search label, current-page state, loading status, empty states, and render-error alert.
+- Accessible skip link, named navigation, visible focus styles, reduced-motion support, labeled and live search results, current-page state, loading status, empty states, and render-error alert.
 - Hyderabad and Jaipur sample guides are labeled mock. History, attraction details, dining, lodging, and itinerary content explicitly state that facts, attribution, hours, ratings, cuisine, and dietary details are unverified or unknown.
 - No photographs, external image URLs, API calls, or runtime font downloads are used.
 

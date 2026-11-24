@@ -38,6 +38,7 @@ test("document exposes accessible landmark navigation and mobile layout", async 
   assert.match(html, /<main id="main-content"/);
   assert.match(html, /role="status"/);
   assert.match(html, /<nav class="bottom-nav" aria-label="Main navigation"/);
+  assert.match(app, /id="city-grid" aria-live="polite"/);
   for (const label of ["Home", "Itineraries", "Social", "Saved"]) assert.match(html, new RegExp(`>${label}<\\/span>`));
   assert.match(css, /:focus-visible/);
   assert.match(css, /max-width: 480px/);
