@@ -943,7 +943,6 @@ async function runClaimedCycle(env: Env, cycle: CycleClaim) {
       osm_count: discovered.openstreetmap,
       wikidata_count: discovered.wikidata,
       wikipedia_count: wikipediaCount,
-      inserted_count: processed,
       error_message: errors.join(' | ') || null,
     });
 
