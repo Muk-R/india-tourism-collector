@@ -128,6 +128,11 @@ h2 { margin-bottom: 0; font-family: var(--serif); font-size: clamp(28px, 3.4vw, 
 .city-page .section-block { padding: 32px 0 18px; }
 .city-page .section-heading { margin-bottom: 16px; }
 .count-label { color: #7e857e; font-size: 9px; font-weight: 700; letter-spacing: .14em; }
+.place-filters { display: flex; flex-wrap: wrap; gap: 7px; margin: 0 0 14px; }
+.filter-button { display: inline-flex; align-items: center; gap: 7px; padding: 7px 10px; border: 1px solid #d9ddd5; border-radius: 20px; color: #657167; background: rgba(255,255,255,.58); font: inherit; font-size: 10px; cursor: pointer; }
+.filter-button span { color: #899189; font-size: 9px; }
+.filter-button.active { border-color: #82917f; color: #334b3b; background: #e9eee7; }
+.filter-button:focus-visible { outline: 2px solid #536b57; outline-offset: 2px; }
 .place-list { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; }
 .place-card { display: flex; min-height: 129px; align-items: flex-start; gap: 12px; padding: 15px 12px; border: 1px solid #e0e0d7; border-radius: 5px; background: rgba(255,255,255,.57); box-shadow: 0 5px 14px rgba(30,43,34,.035); }
 .place-glyph { display: grid; width: 35px; height: 35px; flex: 0 0 35px; place-items: center; border-radius: 50%; color: #65785f; background: #e9ede5; font-size: 19px; }

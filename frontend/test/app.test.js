@@ -54,4 +54,8 @@ test("document exposes accessible landmark navigation and mobile layout", async 
   assert.match(app, /title\.includes\("could not"\) \? "alert" : "status"/);
   assert.match(app, /aria-busy/);
   assert.match(html, /runtime-config\.js/);
+  assert.match(app, /role="group" aria-label="Filter places by source category"/);
+  assert.match(app, /aria-pressed="\$\{selectedCategory === group\}"/);
+  assert.match(app, /Open in OpenStreetMap/);
+  assert.match(app, /target="_blank" rel="noopener noreferrer"/);
 });

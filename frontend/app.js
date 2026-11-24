@@ -1,6 +1,7 @@
 import { createApiClient } from "./api.js";
 import { runtimeConfig } from "./config.js";
 import { filterCities, mockCities, mockItinerary, getView } from "./data.js";
+import { filterPlaces, getOpenStreetMapUrl, getPlaceGroupCounts } from "./places.js";
 
 const main = document.querySelector("#main-content");
 const navLinks = [...document.querySelectorAll("[data-nav]")];
@@ -13,6 +14,7 @@ let citiesLoaded = false;
 let source = "api";
 let requestNumber = 0;
 let cityLoadError = "";
+let selectedCategory = "all";
 const client = runtimeConfig.apiBaseUrl ? createApiClient({ apiBaseUrl: runtimeConfig.apiBaseUrl }) : null;
 
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]);
@@ -24,10 +26,12 @@ const safeUrl = (value) => {
   } catch { return ""; }
 };
 const present = (value) => value !== null && value !== undefined && value !== "";
-const validCoordinates = (item) => Number.isFinite(item?.latitude) && Number.isFinite(item?.longitude);
-const coordinateLine = (item) => validCoordinates(item)
-  ? `<p class="place-meta">${item.latitude.toFixed(5)}, ${item.longitude.toFixed(5)}</p>`
-  : "";
+const coordinateLine = (item) => {
+  const mapUrl = getOpenStreetMapUrl(item);
+  return mapUrl
+    ? `<p class="place-meta">${item.latitude.toFixed(5)}, ${item.longitude.toFixed(5)} · <a href="${escapeHtml(mapUrl)}" target="_blank" rel="noopener noreferrer">Open in OpenStreetMap</a></p>`
+    : "";
+};
 const dataLabel = () => source === "mock" ? '<span class="mock-tag">MOCK GUIDE</span>' : '<span class="data-tag">API DATA</span>';
 
 function cityCard(city, index) {
@@ -108,15 +112,30 @@ function placeCard(row) {
   return `<article class="place-card"><div class="place-glyph" aria-hidden="true">${imageUrl ? `<img src="${escapeHtml(imageUrl)}" alt="" loading="lazy" referrerpolicy="no-referrer" />` : "✳"}</div><div class="place-copy"><p class="eyebrow">${escapeHtml(category)} ${mockCopy}</p><h3>${escapeHtml(name)}</h3><p>${escapeHtml(description)}</p>${coordinateLine(place)}${imageAttribution(place)}${sourceLinks(place)}<div class="place-scores">${importance}${quality}${distance}</div></div><button class="save-button ${saved.has(id) ? "is-saved" : ""}" data-save="${escapeHtml(id)}" aria-label="${saved.has(id) ? "Remove" : "Save"} ${escapeHtml(name)}" aria-pressed="${saved.has(id)}">${saved.has(id) ? "♥" : "♡"}</button></article>`;
 }
 
+function placeFilters(rows) {
+  const counts = getPlaceGroupCounts(rows);
+  const groups = [
+    ["all", "All", rows.length],
+    ["attractions", "Attractions", counts.attractions || 0],
+    ["food", "Food", counts.food || 0],
+    ["stays", "Stays", counts.stays || 0],
+  ];
+  if (selectedCategory !== "all" && !counts[selectedCategory]) selectedCategory = "all";
+  return `<div class="place-filters" role="group" aria-label="Filter places by source category">${groups.filter(([group, , count]) => group === "all" || count > 0).map(([group, label, count]) => `<button class="filter-button ${selectedCategory === group ? "active" : ""}" type="button" data-category-filter="${group}" aria-pressed="${selectedCategory === group}">${label}<span>${count}</span></button>`).join("")}</div>`;
+}
+
 function cityView(city, rows) {
   const mockCity = source === "mock" ? mockByName.get(city.name.toLocaleLowerCase()) : null;
   const color = city.color || "saffron";
-  const places = rows.map(placeCard).join("");
+  const filters = placeFilters(rows);
+  const shownRows = filterPlaces(rows, selectedCategory);
+  const places = shownRows.map(placeCard).join("");
+  const unclassifiedCount = getPlaceGroupCounts(rows).unclassified || 0;
   const intro = city.intro || "Discover approved places and their source details.";
   const history = mockCity ? `<section class="history-panel" aria-labelledby="history-title"><div class="history-icon" aria-hidden="true">✳</div><div><p class="eyebrow">A SENSE OF PLACE <span class="mock-tag">MOCK COPY</span></p><h2 id="history-title">The story so far</h2><p>${escapeHtml(mockCity.history)}</p><span class="source-note">Sources and attribution are not verified for this sample copy.</span></div></section>` : "";
-  const extras = mockCity ? `<div class="city-columns"><section class="mini-section" aria-labelledby="food-title"><p class="eyebrow">TASTE THE CITY <span class="mock-tag">MOCK</span></p><h2 id="food-title">Food & drink</h2>${mockCity.restaurants.map((item) => `<article class="mini-card"><span class="mini-icon" aria-hidden="true">◒</span><div><h3>${escapeHtml(item.name)}</h3><p>${escapeHtml(item.note)}</p></div></article>`).join("")}</section><section class="mini-section" aria-labelledby="stay-title"><p class="eyebrow">A PLACE TO LAND <span class="mock-tag">MOCK</span></p><h2 id="stay-title">Places to stay</h2>${mockCity.stays.map((item) => `<article class="mini-card"><span class="mini-icon" aria-hidden="true">⌂</span><div><h3>${escapeHtml(item.name)}</h3><p>${escapeHtml(item.note)}</p></div></article>`).join("")}</section></div>` : `<div class="city-columns"><section class="mini-section"><p class="eyebrow">TASTE THE CITY</p><h2>Food & drink</h2><p class="source-note">Restaurant data is not available from the current public API.</p></section><section class="mini-section"><p class="eyebrow">A PLACE TO LAND</p><h2>Places to stay</h2><p class="source-note">Accommodation data is not available from the current public API.</p></section></div>`;
+  const extras = mockCity ? `<div class="city-columns"><section class="mini-section" aria-labelledby="food-title"><p class="eyebrow">TASTE THE CITY <span class="mock-tag">MOCK</span></p><h2 id="food-title">Food & drink</h2>${mockCity.restaurants.map((item) => `<article class="mini-card"><span class="mini-icon" aria-hidden="true">◒</span><div><h3>${escapeHtml(item.name)}</h3><p>${escapeHtml(item.note)}</p></div></article>`).join("")}</section><section class="mini-section" aria-labelledby="stay-title"><p class="eyebrow">A PLACE TO LAND <span class="mock-tag">MOCK</span></p><h2 id="stay-title">Places to stay</h2>${mockCity.stays.map((item) => `<article class="mini-card"><span class="mini-icon" aria-hidden="true">⌂</span><div><h3>${escapeHtml(item.name)}</h3><p>${escapeHtml(item.note)}</p></div></article>`).join("")}</section></div>` : "";
   return `<div class="page-wrap city-page"><a class="back-link" href="#home"><span aria-hidden="true">←</span> All cities</a><section class="city-header ${escapeHtml(color)}"><div class="city-header-copy"><p class="eyebrow">${escapeHtml(city.state_name || city.state || "INDIA")} ${dataLabel()}</p><h1>${escapeHtml(city.name)}<span class="period">.</span></h1><p>${escapeHtml(intro)}</p>${coordinateLine(city)}</div><div class="city-header-art" aria-hidden="true"><span>${escapeHtml(city.name.slice(0, 1))}</span><small>LOCALISE<br />FIELD NOTES</small></div></section>
-    <div class="city-content">${history}<section class="section-block" aria-labelledby="attractions-title"><div class="section-heading"><div><p class="eyebrow">WORTH A CLOSER LOOK</p><h2 id="attractions-title">Landmarks & places<span class="period">.</span></h2></div><span class="count-label">${String(rows.length).padStart(2, "0")} PLACES</span></div><div class="place-list">${places || '<div class="empty-state" role="status"><h3>No approved places yet</h3><p>Try again later as city collection continues.</p></div>'}</div></section>${extras}</div></div>`;
+    <div class="city-content">${history}<section class="section-block" aria-labelledby="attractions-title"><div class="section-heading"><div><p class="eyebrow">WORTH A CLOSER LOOK</p><h2 id="attractions-title">Landmarks & places<span class="period">.</span></h2></div><span class="count-label" aria-live="polite" aria-atomic="true">${String(shownRows.length).padStart(2, "0")} PLACES</span></div>${filters}${selectedCategory === "all" && unclassifiedCount ? `<p class="source-note">${unclassifiedCount} unclassified ${unclassifiedCount === 1 ? "place is" : "places are"} shown in All.</p>` : ""}<div class="place-list">${places || '<div class="empty-state" role="status"><h3>No places in this category</h3><p>Choose another category to see available places.</p></div>'}</div></section>${extras}</div></div>`;
 }
 
 function simpleView(type) {
@@ -252,6 +271,11 @@ function bindControls() {
     const id = button.dataset.save;
     if (saved.has(id)) saved.delete(id); else saved.add(id);
     render();
+  }));
+  document.querySelectorAll("[data-category-filter]").forEach((button) => button.addEventListener("click", () => {
+    selectedCategory = button.dataset.categoryFilter;
+    render();
+    requestAnimationFrame(() => document.querySelector(`[data-category-filter="${selectedCategory}"]`)?.focus());
   }));
   document.querySelectorAll("[data-retry]").forEach((button) => button.addEventListener("click", () => {
     placeCache.clear();
