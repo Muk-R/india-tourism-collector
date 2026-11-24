@@ -13,6 +13,26 @@ export type BoundingBox = {
   east: number;
 };
 
+export type DiscoveryTile = {
+  id: string;
+  bounds: BoundingBox;
+  depth: number;
+};
+
+/** JSON-serializable progress that callers can persist between collection calls. */
+export type TileCursor = {
+  version: 1;
+  pending: DiscoveryTile[];
+  completed: string[];
+};
+
+export class TileSubdivisionRequiredError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "TileSubdivisionRequiredError";
+  }
+}
+
 export type DiscoveryKind = "attractions" | "lodging" | "restaurants";
 
 export type OSMElement = {
@@ -75,6 +95,144 @@ export function validateBoundingBox(box: BoundingBox): void {
   ) {
     throw new Error("Invalid OSM tile bounds.");
   }
+}
+
+/** Split a geographic tile into four deterministic children. Shared edges are
+ * intentional; stable source IDs let the caller deduplicate boundary results.
+ */
+export function subdivideBoundingBox(box: BoundingBox): BoundingBox[] {
+  validateBoundingBox(box);
+  const midLat = (box.south + box.north) / 2;
+  const midLon = (box.west + box.east) / 2;
+  return [
+    { south: box.south, west: box.west, north: midLat, east: midLon },
+    { south: box.south, west: midLon, north: midLat, east: box.east },
+    { south: midLat, west: box.west, north: box.north, east: midLon },
+    { south: midLat, west: midLon, north: box.north, east: box.east },
+  ];
+}
+
+export function createTileCursor(bounds: BoundingBox): TileCursor {
+  validateBoundingBox(bounds);
+  return { version: 1, pending: [{ id: "0", bounds, depth: 0 }], completed: [] };
+}
+
+/** Replace an overloaded pending tile with children without losing cursor state. */
+export function subdividePendingTile(cursor: TileCursor, tileId: string, maxDepth = 8): TileCursor {
+  if (cursor.version !== 1 || !Array.isArray(cursor.pending) || !Array.isArray(cursor.completed)) {
+    throw new Error("Invalid discovery cursor.");
+  }
+  const index = cursor.pending.findIndex((tile) => tile.id === tileId);
+  if (index < 0) throw new Error(`Pending tile not found: ${tileId}`);
+  const tile = cursor.pending[index];
+  if (!Number.isInteger(tile.depth) || tile.depth < 0) throw new Error(`Pending tile ${tileId} has an invalid depth.`);
+  if (!Number.isInteger(maxDepth) || maxDepth < 1 || tile.depth >= maxDepth) {
+    throw new TileSubdivisionRequiredError(`Tile ${tileId} remains too large at subdivision depth ${tile.depth}.`);
+  }
+  const children = subdivideBoundingBox(tile.bounds).map((bounds, childIndex) => ({
+    id: `${tile.id}.${childIndex}`,
+    bounds,
+    depth: tile.depth + 1,
+  }));
+  return {
+    ...cursor,
+    pending: [...cursor.pending.slice(0, index), ...children, ...cursor.pending.slice(index + 1)],
+  };
+}
+
+/** Advance a persisted cursor only after the caller has handled a tile result. */
+export function completePendingTile(cursor: TileCursor, tileId: string): TileCursor {
+  if (cursor.version !== 1 || !Array.isArray(cursor.pending) || !Array.isArray(cursor.completed)) {
+    throw new Error("Invalid discovery cursor.");
+  }
+  if (cursor.completed.includes(tileId)) return cursor;
+  const pending = cursor.pending.filter((tile) => tile.id !== tileId);
+  if (pending.length === cursor.pending.length) throw new Error(`Pending tile not found: ${tileId}`);
+  return { ...cursor, pending, completed: [...cursor.completed, tileId] };
+}
+
+function retryAfterMs(value: string | null, now: number, maximum: number): number | undefined {
+  if (!value) return undefined;
+  const seconds = Number(value);
+  const delay = Number.isFinite(seconds) && seconds >= 0
+    ? seconds * 1000
+    : Date.parse(value) - now;
+  return Number.isFinite(delay) && delay >= 0 ? Math.min(delay, maximum) : undefined;
+}
+
+function isRetryableStatus(status: number): boolean {
+  return status === 429 || status === 500 || status === 502 || status === 503 || status === 504;
+}
+
+/** Fetch one Overpass tile with bounded retries and an abort timeout. The
+ * injected dependencies keep this deterministic in tests and offline tooling.
+ */
+export async function fetchOverpassTile(
+  kind: DiscoveryKind,
+  bounds: BoundingBox,
+  options: {
+    fetchImpl?: typeof fetch;
+    timeoutMs?: number;
+    maxRetries?: number;
+    baseDelayMs?: number;
+    maxDelayMs?: number;
+    sleep?: (milliseconds: number) => Promise<void>;
+    now?: () => number;
+  } = {},
+): Promise<OSMElement[]> {
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const timeoutMs = options.timeoutMs ?? 45_000;
+  const maxRetries = options.maxRetries ?? 3;
+  const baseDelayMs = options.baseDelayMs ?? 1_000;
+  const maxDelayMs = options.maxDelayMs ?? 30_000;
+  const sleep = options.sleep ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
+  const now = options.now ?? Date.now;
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || !Number.isInteger(maxRetries) || maxRetries < 0 ||
+      !Number.isFinite(baseDelayMs) || baseDelayMs < 0 || !Number.isFinite(maxDelayMs) || maxDelayMs < 0) {
+    throw new Error("Invalid Overpass retry or timeout configuration.");
+  }
+  const query = buildOverpassQuery(kind, bounds);
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    let retryDelay: number | undefined;
+    try {
+      const response = await fetchImpl("https://overpass-api.de/api/interpreter", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8" },
+        body: new URLSearchParams({ data: query }),
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        if (!isRetryableStatus(response.status)) throw new Error(`Overpass returned HTTP ${response.status}.`);
+        retryDelay = retryAfterMs(response.headers.get("Retry-After"), now(), maxDelayMs);
+        throw new Error(`Overpass returned retryable HTTP ${response.status}.`);
+      }
+      const payload = await response.json() as { elements?: unknown; remark?: unknown };
+      if (typeof payload.remark === "string" && /timed out|runtime error|query too large/i.test(payload.remark)) {
+        throw new TileSubdivisionRequiredError(`Overpass could not complete tile: ${payload.remark}`);
+      }
+      if (!Array.isArray(payload.elements)) throw new Error("Overpass response did not include an elements array.");
+      return payload.elements as OSMElement[];
+    } catch (error) {
+      if (error instanceof TileSubdivisionRequiredError) throw error;
+      lastError = error;
+      if (attempt >= maxRetries) break;
+      const retryable = error instanceof Error && (
+        error instanceof TypeError ||
+        error.name === "AbortError" || error.name === "TimeoutError" ||
+        error.message.startsWith("Overpass returned retryable HTTP") ||
+        error.message === "fetch failed"
+      );
+      if (!retryable) throw error;
+      await sleep(retryDelay ?? Math.min(baseDelayMs * (2 ** attempt), maxDelayMs));
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  throw new Error(`Overpass tile failed after ${maxRetries + 1} attempts: ${String(lastError)}`);
 }
 
 export function buildOverpassQuery(kind: DiscoveryKind, box: BoundingBox): string {
