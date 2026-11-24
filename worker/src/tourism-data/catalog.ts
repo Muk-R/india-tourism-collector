@@ -63,7 +63,7 @@ const TAG_FILTERS: Record<DiscoveryKind, string[]> = {
     '["tourism"~"hotel|motel|guest_house|hostel|chalet|alpine_hut|camp_site|caravan_site|apartment"]',
   ],
   restaurants: [
-    '["amenity"~"restaurant|cafe|fast_food|food_court|pub|bar|ice_cream"]',
+    '["amenity"~"restaurant|cafe|fast_food|food_court|pub|bar|ice_cream|canteen"]',
   ],
 };
 
@@ -117,12 +117,16 @@ function cuisineTypes(tags: Record<string, unknown>): string[] {
 function categoryFor(kind: DiscoveryKind, tags: Record<string, unknown>): string {
   if (kind === "lodging") return "accommodation";
   if (kind === "restaurants") return "restaurant";
-  if (tags.historic && tags.historic !== "yes" && tags.historic !== "no") return String(tags.historic);
-  if (tags.historic === "yes") return "historic_site";
-  if (tags.tourism && tags.tourism !== "yes") return String(tags.tourism);
-  if (tags.amenity === "place_of_worship") return "religious_site";
-  if (tags.leisure) return String(tags.leisure);
-  if (tags.natural) return String(tags.natural);
+  const historic = tagString(tags, "historic")?.toLowerCase();
+  if (historic && historic !== "no") return historic === "yes" ? "historic_site" : historic;
+  const tourism = tagString(tags, "tourism")?.toLowerCase();
+  if (tourism && tourism !== "yes" && tourism !== "no") return tourism;
+  if (tagString(tags, "amenity")?.toLowerCase() === "place_of_worship") return "religious_site";
+  const leisure = tagString(tags, "leisure")?.toLowerCase();
+  if (leisure && leisure !== "yes" && leisure !== "no") return leisure;
+  const natural = tagString(tags, "natural")?.toLowerCase();
+  if (natural && natural !== "yes" && natural !== "no") return natural;
+  if (tagString(tags, "waterway")?.toLowerCase() === "waterfall") return "waterfall";
   return "attraction";
 }
 
