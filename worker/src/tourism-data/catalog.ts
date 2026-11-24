@@ -56,7 +56,7 @@ const TAG_FILTERS: Record<DiscoveryKind, string[]> = {
     '["historic"]["historic"!="no"]',
     '["amenity"="place_of_worship"]',
     '["leisure"~"park|garden"]',
-    '["natural"~"waterfall|beach|cave|peak|hot_spring|volcano"]',
+    '["natural"~"waterfall|beach|cave|peak|hot_spring|volcano|glacier|geyser|cliff|rock"]',
     '["waterway"="waterfall"]',
   ],
   lodging: [
@@ -152,6 +152,10 @@ export function scoreImportance(kind: DiscoveryKind, tags: Record<string, unknow
     score = Math.max(score, 76);
     reasons.push("mountain_or_peak");
   }
+  if (["glacier", "geyser", "cliff"].includes(String(tags.natural))) {
+    score = Math.max(score, 76);
+    reasons.push("notable_natural_feature");
+  }
   if (tags.tourism === "viewpoint") {
     score = Math.max(score, 74);
     reasons.push("viewpoint");
@@ -174,7 +178,11 @@ export function normalizeOsmCandidate(
   const name = tagString(tags, "name", "name:en", "name:hi");
   const latitude = element.lat ?? element.center?.lat;
   const longitude = element.lon ?? element.center?.lon;
-  if (!name || !Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+  if (
+    !name || !Number.isFinite(latitude) || !Number.isFinite(longitude) ||
+    (latitude as number) < -90 || (latitude as number) > 90 ||
+    (longitude as number) < -180 || (longitude as number) > 180
+  ) return null;
 
   const sourceId = `${element.type}/${element.id}`;
   const importance = scoreImportance(kind, tags);
