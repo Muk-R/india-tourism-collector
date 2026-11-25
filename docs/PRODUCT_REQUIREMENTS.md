@@ -9,7 +9,7 @@ These decisions supersede earlier restrictive public catalog limits for food and
 - Mobile-first, accessible, visually informative and concise.
 - Retain the approved matte-glass design, readable content, subtle depth and shadows, responsive layouts, and existing navigation patterns.
 - Home content order: city introduction and historical significance; must-see attractions; food split into Must-Try Local Food and Everyday Dining; recommended stays split into Budget, Mid-range and Premium; nearby escapes; itineraries or a selected day plan; maps.
-- Keep only a small curated preview of each category on the home page. Expanded categories support pagination, search, geographic filters and visitor preferences.
+- Keep only a small curated preview of each category on the home page. Expanded categories support pagination, search, geographic filters and visitor preferences. Food browsing supports area, attraction, hotel, cuisine, verified dietary preferences and current location when the visitor grants location permission. Accommodation browsing supports tier comparison and proximity to selected attractions.
 - Do not expose the raw collected dataset as an unfiltered public directory.
 - Explain source attribution where the content appears. Label editorial recommendations separately from verified customer ratings.
 
