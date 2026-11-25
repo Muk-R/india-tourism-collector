@@ -33,17 +33,18 @@ supabase db push
 
 The offline staging migration is `supabase/migrations/20261125_offline_pbf_staging.sql`; verify the prerequisite collection-cycle migration `20261124_collection_cycles.sql` is present in the same reviewed migration set. A production migration must be approved separately from an application deployment.
 
-Worker configuration is `worker/wrangler.toml`. Store each value through the interactive secret prompt; never place credentials in shell history, source, or `localise-config.js`. Wrangler secret writes can activate a Worker version, so they are deployment operations and require the same approval:
+Worker configuration is `worker/wrangler.toml`. Never place credentials in shell history, source, or `localise-config.js`. Do not issue individual `wrangler secret put` commands during preparation: each creates and immediately deploys a version. After all gates and explicit deployment approval, upload the reviewed code and required secrets as one non-deployed version from an owner-managed protected secret file, then promote that exact version:
 
 ```powershell
 Set-Location worker
-pnpm exec wrangler secret put SUPABASE_URL --config wrangler.toml
-pnpm exec wrangler secret put SUPABASE_SECRET_KEY --config wrangler.toml
-pnpm exec wrangler secret put ADMIN_TOKEN --config wrangler.toml
 pnpm exec wrangler deploy --dry-run --config wrangler.toml --outdir ..\.overnight\worker-release-dry-run
 # After explicit deployment approval only:
-pnpm exec wrangler deploy --config wrangler.toml
+pnpm exec wrangler versions upload --config wrangler.toml --secrets-file '<owner-managed-protected-secret-file>'
+# Record the version ID returned by upload, review it, then deploy that exact version after approval:
+pnpm exec wrangler versions deploy '<approved-version-id>@100%' --config wrangler.toml
 ```
+
+Avoid individual secret writes during preparation because they can deploy immediately. A single `versions upload --secrets-file` operation creates an undeployed code/config/secrets version; `versions deploy` activates the approved version. Never put the protected secret file in the repository or print its contents.
 
 For each approved JSON batch (prepared from the source artifact by a reviewed exporter), post it to the private staging endpoint and verify its response before continuing:
 
