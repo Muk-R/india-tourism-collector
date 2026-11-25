@@ -66,7 +66,7 @@ jobs:
           cache-dependency-path: worker/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - name: Deploy to the existing tourism pilot Worker
-        run: pnpm exec wrangler deploy --keep-vars --message "GitHub Actions $GITHUB_SHA"
+        run: pnpm exec wrangler deploy --keep-vars --var ADMIN_ACTOR_ID:localise-pilot-admin --message "GitHub Actions $GITHUB_SHA"
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
@@ -88,7 +88,14 @@ jobs:
           const cities = await get('/public/cities');
           if (!Array.isArray(cities)) throw new Error('/public/cities must return a JSON array');
           if (cities.some((city) => !city || typeof city.id !== 'string' || typeof city.name !== 'string')) throw new Error('/public/cities contains an invalid city shape');
-          console.log(`Worker health passed; public city records: ${cities.length}`);
+          const hyderabad = cities.find((city) => city.name.toLowerCase() === 'hyderabad');
+          if (!hyderabad) throw new Error('Hyderabad is not enabled in the tourism API');
+          const query = new URLSearchParams({ city_id: hyderabad.id, limit: '100', offset: '0' });
+          const places = await get(`/public/places?${query}`);
+          if (!Array.isArray(places)) throw new Error('/public/places must return a JSON array');
+          if (places.some((row) => !row?.place || row.place.review_status !== 'approved')) throw new Error('/public/places returned an invalid or unapproved record');
+          if (places.some((row) => !Array.isArray(row.place.sources) || !row.place.sources.some((source) => source.attribution && source.license))) throw new Error('/public/places contains a record without visible source attribution');
+          console.log(`Worker health passed; city records: ${cities.length}; Hyderabad public places: ${places.length}`);
           NODE
       - name: Roll back failed deployment
         if: failure() && steps.health.outcome == 'failure'
