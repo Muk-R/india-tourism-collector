@@ -1144,10 +1144,15 @@ export default {
         return json({ error: "offset must be a whole number from 0 through 100000." }, 400);
       }
       const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(100, requestedLimit)) : 100;
-      const rows = await db(
-        env,
-        `tourism_city_places?select=distance_km,relevance_score,place:tourism_places!inner(id,canonical_name,category,subcategory,latitude,longitude,address,description,description_source,description_license,website_url,phone,wikipedia_url,image_url,image_author,image_license,importance_score,quality_score,review_status,sources:tourism_place_sources(source_name,source_id,source_url,attribution,license,payload))&city_id=eq.${encode(cityId)}&is_current=eq.true&place.review_status=eq.approved&place.is_active=eq.true&order=relevance_score.desc&limit=${limit}&offset=${offset}`,
-      );
+      let rows: unknown;
+      try {
+        rows = await db(
+          env,
+          `tourism_city_places?select=distance_km,relevance_score,place:tourism_places!inner(id,canonical_name,category,subcategory,latitude,longitude,address,description,description_source,description_license,website_url,phone,wikipedia_url,image_url,image_author,image_license,importance_score,quality_score,review_status,route_ready,sources:tourism_place_sources(source_name,source_id,source_url,attribution,license,payload))&city_id=eq.${encode(cityId)}&is_current=eq.true&place.review_status=eq.approved&place.is_active=eq.true&order=place(importance_score).desc,relevance_score.desc&limit=${limit}&offset=${offset}`,
+        );
+      } catch {
+        return json({ error: "Tourism places service unavailable." }, 502);
+      }
       const publicRows = (Array.isArray(rows) ? rows : []).map((row: any) => {
         const place = row?.place && typeof row.place === "object" ? row.place : {};
         const sources = Array.isArray(place.sources) ? place.sources : [];
