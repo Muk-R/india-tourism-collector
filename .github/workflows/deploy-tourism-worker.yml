@@ -66,21 +66,18 @@ jobs:
           cache-dependency-path: worker/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - name: Deploy to the existing tourism pilot Worker
-        run: |
-          test -n "$TOURISM_WORKER_NAME"
-          pnpm exec wrangler deploy --name "$TOURISM_WORKER_NAME" --keep-vars --message "GitHub Actions $GITHUB_SHA"
+        run: pnpm exec wrangler deploy --keep-vars --message "GitHub Actions $GITHUB_SHA"
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-          TOURISM_WORKER_NAME: ${{ vars.TOURISM_WORKER_NAME }}
       - name: Verify live Worker API
         id: health
         env:
           API_ORIGIN: ${{ vars.TOURISM_API_ORIGIN }}
         run: |
           node --input-type=module <<'NODE'
-          const base = process.env.API_ORIGIN;
-          if (!base || new URL(base).protocol !== 'https:') throw new Error('TOURISM_API_ORIGIN must be an HTTPS GitHub Actions variable');
+          const base = process.env.API_ORIGIN || 'https://hyderabad-pilot-india-tourism-collector.promoacc123123.workers.dev';
+          if (new URL(base).protocol !== 'https:') throw new Error('TOURISM_API_ORIGIN must use HTTPS');
           const get = async (path) => {
             const response = await fetch(new URL(path, base), { signal: AbortSignal.timeout(15000) });
             if (!response.ok) throw new Error(`${path} returned HTTP ${response.status}`);
@@ -95,8 +92,7 @@ jobs:
           NODE
       - name: Roll back failed deployment
         if: failure() && steps.health.outcome == 'failure'
-        run: pnpm exec wrangler rollback --name "$TOURISM_WORKER_NAME" --message "Automatic rollback after failed pilot health check"
+        run: pnpm exec wrangler rollback --message "Automatic rollback after failed pilot health check"
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-          TOURISM_WORKER_NAME: ${{ vars.TOURISM_WORKER_NAME }}
