@@ -7,9 +7,11 @@ const baseEnv = { SUPABASE_SECRET_KEY: "sb_secret_local-fixture", ADMIN_TOKEN: "
 test("local HTTP opt-in permits only loopback Supabase origins", async () => {
   const originalFetch = globalThis.fetch;
   let called = false;
-  globalThis.fetch = async (url) => {
+  globalThis.fetch = async (url, init) => {
     called = true;
     assert.equal(String(url), "http://127.0.0.1:3000/rest/v1/tourism_cities?select=id,name,state_name,latitude,longitude,radius_km&is_enabled=eq.true&order=name.asc");
+    assert.equal(new Headers(init.headers).get("apikey"), baseEnv.SUPABASE_SECRET_KEY);
+    assert.equal(new Headers(init.headers).has("authorization"), false);
     return new Response("[]", { status: 200 });
   };
   try {
@@ -23,15 +25,33 @@ test("local HTTP opt-in permits only loopback Supabase origins", async () => {
   }
 });
 
+test("public cities converts database failures to a stable JSON 502", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => { throw new Error("private database detail"); };
+  try {
+    const response = await worker.fetch(new Request("https://worker.test/public/cities"), {
+      ...baseEnv, SUPABASE_URL: "https://database.example",
+    });
+    assert.equal(response.status, 502);
+    assert.match(response.headers.get("content-type"), /application\/json/);
+    assert.equal(response.headers.get("access-control-allow-origin"), "*");
+    assert.deepEqual(await response.json(), { error: "Tourism data service unavailable." });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("local HTTP remains disabled by default and cannot allow remote cleartext URLs", async () => {
   const originalFetch = globalThis.fetch;
   let called = false;
   globalThis.fetch = async () => { called = true; return new Response("[]", { status: 200 }); };
   try {
     for (const [url, allow] of [["http://127.0.0.1:3000", undefined], ["http://api.example.test", "true"]]) {
-      await assert.rejects(worker.fetch(new Request("http://worker.test/public/cities"), {
+      const response = await worker.fetch(new Request("http://worker.test/public/cities"), {
         ...baseEnv, SUPABASE_URL: url, ALLOW_LOCAL_HTTP: allow,
-      }), /SUPABASE_URL must be an HTTPS origin/);
+      });
+      assert.equal(response.status, 502);
+      assert.deepEqual(await response.json(), { error: "Tourism data service unavailable." });
     }
     assert.equal(called, false);
   } finally {

@@ -68,6 +68,8 @@ Do not add any promotion/publication call until the publication review and appro
 
 The isolated site checkout does not have its own Wrangler package. Use the lockfile-installed CLI from `worker/`. The static site uses `localise-config.js` and `wrangler.jsonc`. Set only the reviewed public Worker origin; it must contain no server credential. Then dry-run and deploy the reviewed site commit:
 
+All current `workers.dev` hosts are temporary pilot endpoints. The final release will use a new custom domain. Keep the website API origin in `localise-config.js`, Worker CORS allowed origins, and Supabase Auth redirect allowlists configurable per environment; do not bind release behavior to a preview or `workers.dev` host.
+
 ```powershell
 Set-Location <collector-checkout-root>
 # Edit .overnight\localise-website\localise-config.js to set tourismApiBaseUrl to the approved HTTPS Worker origin.

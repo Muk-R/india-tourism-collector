@@ -1119,12 +1119,16 @@ export default {
     if (url.pathname === "/health") return json({ ok: true, service: "india-tourism-collector" });
 
     if (url.pathname === "/public/cities" && request.method === "GET") {
-      return json(
-        await db(
-          env,
-          "tourism_cities?select=id,name,state_name,latitude,longitude,radius_km&is_enabled=eq.true&order=name.asc",
-        ),
-      );
+      try {
+        return json(
+          await db(
+            env,
+            "tourism_cities?select=id,name,state_name,latitude,longitude,radius_km&is_enabled=eq.true&order=name.asc",
+          ),
+        );
+      } catch {
+        return json({ error: "Tourism data service unavailable." }, 502);
+      }
     }
     if (url.pathname === "/public/places" && request.method === "GET") {
       const cityId = url.searchParams.get("city_id") || "";
