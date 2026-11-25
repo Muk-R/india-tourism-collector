@@ -182,6 +182,74 @@ paths:
         '200': { description: Reconciled total, review-only, and quarantined record counts. }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '409': { description: Snapshot is missing or incomplete. }
+  /admin/promote-offline-pbf:
+    post:
+      tags: [Admin]
+      summary: Publish explicitly approved browse-only records from a finalized private snapshot
+      description: Requires the server-side ADMIN_ACTOR_ID binding. Place names and coordinates are read from private staging; request bodies cannot override them. Route and itinerary readiness are always false. The database RPC is service-role-only, transactional and idempotent.
+      x-implementation-status: new
+      security: [{ AdminBearer: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [idempotency_key, snapshot_id, city_id, approval_reference, records]
+              properties:
+                idempotency_key: { type: string, minLength: 16, maxLength: 160, pattern: '^[A-Za-z0-9][A-Za-z0-9._:/-]{15,159}$' }
+                snapshot_id: { type: string, pattern: '^sha256:[0-9a-f]{64}$' }
+                city_id: { type: string, format: uuid }
+                approval_reference: { type: string, minLength: 8, maxLength: 200 }
+                records:
+                  type: array
+                  minItems: 1
+                  maxItems: 100
+                  items:
+                    type: object
+                    additionalProperties: false
+                    required: [source_key, category, decision, importance_score, importance_rationale, importance_source_url]
+                    properties:
+                      source_key: { type: string, pattern: '^(node|way|relation)/[1-9][0-9]{0,18}$' }
+                      category: { type: string, enum: [attraction, food, accommodation, transport] }
+                      decision: { type: string, enum: [approve_browse_only] }
+                      importance_score: { type: integer, minimum: 0, maximum: 100, description: Editorial ranking only; never a customer rating. }
+                      importance_rationale: { type: string, minLength: 8, maxLength: 1000 }
+                      importance_source_url: { type: string, format: uri, pattern: '^https://' }
+                      historical_summary: { type: string, minLength: 20, maxLength: 3000 }
+                      historical_summary_source_url: { type: string, format: uri, pattern: '^https://' }
+                      historical_summary_license: { type: string, minLength: 1, maxLength: 120 }
+      responses:
+        '200': { description: Transactional publication counts and audit ID; repeat idempotency keys do not duplicate records. }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { description: Snapshot, approval, or source identity conflicts; no partial publication is committed. }
+        '413': { description: Promotion body exceeds the route limit. }
+        '502': { description: Tourism database unavailable. }
+        '503': { description: Promotion audit actor is not configured. }
+  /admin/rollback-offline-pbf-publication:
+    post:
+      tags: [Admin]
+      summary: Roll back one audited publication batch without deleting place or audit rows
+      x-implementation-status: new
+      security: [{ AdminBearer: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [idempotency_key, rollback_reference]
+              properties:
+                idempotency_key: { type: string, minLength: 16, maxLength: 160 }
+                rollback_reference: { type: string, minLength: 8, maxLength: 200 }
+      responses:
+        '200': { description: Published rows are made inactive and their city links are retired; audit rows remain. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { description: Publication is absent, already changed, or cannot be safely rolled back. }
+        '503': { description: Promotion audit actor is not configured. }
   /admin/collect:
     post:
       tags: [Admin]
