@@ -66,14 +66,14 @@ Invoke-RestMethod -Uri "$workerOrigin/admin/import-offline-pbf/finalize" -Method
 
 Do not add any promotion/publication call until the publication review and approval gate is complete. The currently verified API has no automatic path from private PBF staging to public tourism rows.
 
-The static site uses `localise-config.js` and `wrangler.jsonc`. Set only the reviewed public Worker origin; it must contain no server credential. Then dry-run and deploy the reviewed site commit:
+The isolated site checkout does not have its own Wrangler package. Use the lockfile-installed CLI from `worker/`. The static site uses `localise-config.js` and `wrangler.jsonc`. Set only the reviewed public Worker origin; it must contain no server credential. Then dry-run and deploy the reviewed site commit:
 
 ```powershell
-Set-Location <isolated-localise-checkout>
-# Edit localise-config.js to set tourismApiBaseUrl to the approved HTTPS Worker origin.
-pnpm exec wrangler deploy --dry-run --config wrangler.jsonc --outdir .wrangler-config\pilot-dry-run
+Set-Location <collector-checkout-root>
+# Edit .overnight\localise-website\localise-config.js to set tourismApiBaseUrl to the approved HTTPS Worker origin.
+pnpm --dir worker exec wrangler deploy --dry-run --config ..\.overnight\localise-website\wrangler.jsonc --outdir ..\.overnight\localise-website\.wrangler-config\pilot-dry-run
 # After explicit deployment approval only:
-pnpm exec wrangler deploy --config wrangler.jsonc
+pnpm --dir worker exec wrangler deploy --config ..\.overnight\localise-website\wrangler.jsonc
 ```
 
 Cloudflare documents `--dry-run` as compile-only and documents that `secret put` can immediately deploy a new Worker version. Review the [Wrangler deploy and secret commands](https://developers.cloudflare.com/workers/wrangler/commands/workers/) before execution.
