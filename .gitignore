@@ -10,5 +10,11 @@ worker/.pnpm-store/
 __pycache__/
 *.py[cod]
 
+# Large offline OpenStreetMap extracts and partial downloads
+/data/raw/*.osm.pbf*
+
+# Local collection snapshots remain outside Git history
+/data/local_pilot/hyderabad/
+
 # Per-worktree autonomous agent checkpoints
 **/.overnight/

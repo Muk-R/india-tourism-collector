@@ -1,0 +1,247 @@
+{
+  "version": 1,
+  "updated_at": "2026-11-25T09:18:00+05:30",
+  "active_task_id": null,
+  "session_status": "handoff_ready",
+  "next_phase": {
+    "session_a": "Fast-track Hyderabad website; perform targeted landmark enrichment and resolve the explicitly deferred identity/access questions.",
+    "session_b": "Plan optimized shared regional extraction for the first 10 cities; reuse the verified bounded-memory pipeline and do not duplicate the Southern India download."
+  },
+  "tasks": [
+    {
+      "id": "pbf_source_verification",
+      "status": "COMPLETED",
+      "dependencies": [],
+      "checkpoint": "PBF integrity verified before this checkpoint; the original input remains read-only.",
+      "tests": [],
+      "artifacts": ["data/raw/southern-zone-261123.osm.pbf"],
+      "recovery": "No recovery required; retain the source file unchanged."
+    },
+    {
+      "id": "pbf_extractor_regression_tests",
+      "status": "COMPLETED",
+      "dependencies": [],
+      "checkpoint": "12 focused tests passed, including streaming/resume fixtures, valid importance evidence, Windows memory metrics, stage validation, and draft landmark candidate matching.",
+      "tests": [{"command": "data/local_pilot/.venv-pbf/Scripts/python.exe -B -m unittest discover -s data/local_pilot -p test_pbf_extract.py", "result": "passed: 12 tests"}],
+      "artifacts": ["data/local_pilot/pbf_extract.py", "data/local_pilot/test_pbf_extract.py"],
+      "recovery": "Rerun the focused test command after a meaningful extractor change."
+    },
+    {
+      "id": "hyderabad_core40_benchmark",
+      "status": "COMPLETED",
+      "dependencies": ["pbf_source_verification", "pbf_extractor_regression_tests"],
+      "checkpoint": "Full source scan completed: 78,204,639 nodes, 11,676,095 ways, 47,948 relations, 7,968,680 areas. 40 km; 2,414.77 s; peak working set 1,423,282,176 bytes; SQLite 3,305,472 bytes; node index 1,258,292,384 bytes; 5,857 unique candidates; 95 possible duplicate groups; 99,144,556,544 bytes free afterward. Resource gate passed.",
+      "tests": [{"command": "offline full-PBF benchmark, radius 40 km", "result": "passed: completed at EOF; peak below 1.9 GiB guard"}],
+      "artifacts": ["data/local_pilot/hyderabad/pbf/benchmark-core40-memory-20261125.summary.json", "data/local_pilot/hyderabad/pbf/benchmark-core40-memory-20261125.sqlite3"],
+      "recovery": "Use the recorded benchmark summary. Do not rerun unless extractor/input or resource assumptions change."
+    },
+    {
+      "id": "stage_validation_tool",
+      "status": "COMPLETED",
+      "dependencies": ["pbf_extractor_regression_tests"],
+      "checkpoint": "Added a streaming JSONL validator that checks exact Haversine distance, core/extended separation, identity, category, attribution, snapshot, duplicate keys and non-routable review state.",
+      "tests": [{"command": "data/local_pilot/.venv-pbf/Scripts/python.exe -B -m unittest discover -s data/local_pilot -p test_pbf_extract.py", "result": "passed: 11 tests"}],
+      "artifacts": ["data/local_pilot/validate_pbf_stage.py"],
+      "recovery": "Run validator only after the completed pilot emits its final summary and JSONL."
+    },
+    {
+      "id": "hyderabad_pbf_150km",
+      "status": "COMPLETED",
+      "dependencies": ["hyderabad_core40_benchmark"],
+      "checkpoint": "Completed full PBF scan at 150 km in 3,152.68 s. Processed 78,204,639 nodes, 11,676,095 ways, 47,948 relations, and 7,968,680 areas. Staged 5,893 unique OSM records: 5,857 core and 36 nearby escape candidates. Peak working set 1,427,578,880 bytes; SQLite 3,297,280 bytes; node index 1,258,292,384 bytes; 97,870,692,352 bytes free after run.",
+      "tests": [{"command": "full offline Hyderabad extraction, radius 150 km", "result": "completed: summary status complete; matching source checksum and snapshot"}],
+      "artifacts": ["data/local_pilot/hyderabad/pbf/hyderabad-osm-150km.sqlite3", "data/local_pilot/hyderabad/pbf/hyderabad-osm-150km.places.jsonl", "data/local_pilot/hyderabad/pbf/hyderabad-osm-150km.summary.json"],
+      "recovery": "No resume required. Preserve the source and all pilot artifacts. Do not rerun unless the source or extractor scope changes."
+    },
+    {
+      "id": "hyderabad_stage_validation",
+      "status": "COMPLETED",
+      "dependencies": ["hyderabad_pbf_150km"],
+      "checkpoint": "Read-only stage validation passed with zero record validation errors. Found 5,893 records by source type: 3,679 nodes, 2,180 ways, 34 relations. Category counts: attraction 2,031; accommodation 724; food 2,133; transport 1,010. Area counts: core 5,857; nearby escape 36. All remained review-only and non-routable.",
+      "tests": [{"command": "data/local_pilot/.venv-pbf/Scripts/python.exe -B data/local_pilot/validate_pbf_stage.py --summary data/local_pilot/hyderabad/pbf/hyderabad-osm-150km.summary.json --records data/local_pilot/hyderabad/pbf/hyderabad-osm-150km.places.jsonl", "result": "passed: status passed; zero validation errors"}],
+      "artifacts": ["data/local_pilot/hyderabad/pbf/hyderabad-osm-150km.summary.json", "data/local_pilot/hyderabad/pbf/hyderabad-osm-150km.places.jsonl"],
+      "recovery": "Rerun only if the JSONL or summary changes."
+    },
+    {
+      "id": "duplicate_identity_review",
+      "status": "PENDING",
+      "dependencies": ["hyderabad_stage_validation"],
+      "checkpoint": "Owner explicitly deferred the broader duplicate-identity review to Session A. No duplicate OSM source keys were found. A review artifact contains 5 shared-Wikidata groups and 92 same-name/near-coordinate groups (227 group memberships); these are candidates, not confirmed duplicates, and no entities were merged.",
+      "tests": [],
+      "artifacts": ["data/local_pilot/hyderabad/pbf/potential-duplicates-review-150km.csv"],
+      "recovery": "Session A may review the candidate CSV with independent identity evidence. Keep all source rows/links distinct until identity is confirmed; never merge on name or proximity alone."
+    },
+    {
+      "id": "process_id_visibility",
+      "status": "BLOCKED_PERMISSION",
+      "dependencies": [],
+      "checkpoint": "Windows CIM denied Win32_Process command-line inspection. The active extraction is verified by its live progress stream.",
+      "tests": [],
+      "artifacts": [],
+      "recovery": "Revisit only if a permitted process-inspection path becomes available; do not repeat the denied CIM request."
+    },
+    {
+      "id": "landmark_source_validation",
+      "status": "PENDING",
+      "dependencies": ["hyderabad_stage_validation"],
+      "checkpoint": "Owner explicitly deferred further landmark enrichment, unmatched-name research, current-hour verification, fees, and duration research to Session A. Evidence review covers 11 candidates with individual pages and nine list-level mentions. Exact-name comparison found candidates for 12/20; eight lack exact matches. Two ambiguous pairs remain. Ramoji has a 38.64 km Telangana Tourism versus OSM coordinate discrepancy; Wikidata aligns with OSM, but the visitor entrance remains unverified. No fixture was changed; all 20 remain unroutable.",
+      "tests": [],
+      "artifacts": ["data/local_pilot/hyderabad/landmark-evidence-review.md"],
+      "recovery": "Resume in Session A after the website slice is stable. Resolve name candidates and the Ramoji coordinate discrepancy; verify visitor entrances/current access before promoting any record. Keep all unverified records non-routable."
+    },
+    {
+      "id": "landmark_evidence_source_survey",
+      "status": "COMPLETED",
+      "dependencies": ["landmark_source_validation"],
+      "checkpoint": "Reviewed official Telangana district pages, Telangana Tourism, the Ramoji operator FAQ, and a UNESCO tentative-list dossier. Eleven candidates have individual page-level evidence; nine have only official-list mentions. A material OSM-versus-Telangana Tourism Ramoji coordinate conflict was found. Older published hours remain pending current confirmation. No draft record was modified or promoted.",
+      "tests": [],
+      "artifacts": ["data/local_pilot/hyderabad/landmark-evidence-review.md"],
+      "recovery": "No recovery required for this source survey; use the references in the artifact to continue field-specific verification."
+    },
+    {
+      "id": "landmark_osm_audit_implementation",
+      "status": "COMPLETED",
+      "dependencies": ["hyderabad_stage_validation"],
+      "checkpoint": "Added a deterministic exact-name candidate audit plus nonbinding token-overlap suggestions for unmatched draft names. It de-duplicates source keys, sorts suggestions deterministically, preserves provenance fields, and hard-codes approved=false and itinerary_ready=false.",
+      "tests": [{"command": "data/local_pilot/.venv-pbf/Scripts/python.exe -B -m unittest discover -s data/local_pilot -p test_pbf_extract.py", "result": "passed: 13 tests; audit tests cover ambiguity, unmatched suggestions and no promotion"}],
+      "artifacts": ["data/local_pilot/landmark_osm_audit.py", "data/local_pilot/test_pbf_extract.py"],
+      "recovery": "Rerun focused Python tests after changes to the audit or its contract."
+    },
+    {
+      "id": "landmark_osm_candidate_report",
+      "status": "COMPLETED",
+      "dependencies": ["landmark_osm_audit_implementation", "hyderabad_stage_validation"],
+      "checkpoint": "A bounded PowerShell streaming comparison was used as the permitted alternative after standalone Python CLI execution was denied. It read all 5,893 staged records and found exact normalized-name candidates for 12 of 20 drafts (14 OSM rows); two names are ambiguous. Eight names have no exact-name candidate. Every match retains source key, URL, ODbL, attribution and snapshot. Output explicitly leaves identity_verified=false, approved=false and itinerary_ready=false.",
+      "tests": [{"command": "PowerShell UTF-8 report integrity assertions", "result": "passed: 20 draft rows; 12 matched names; 2 ambiguous; 14 unique OSM source keys; all provenance valid; all candidates unroutable"}],
+      "artifacts": ["data/local_pilot/hyderabad/pbf/hyderabad-landmark-osm-candidates-150km.json"],
+      "recovery": "No recovery required for exact-name matching. Manually/independently resolve the ambiguous pairs and source-name variants before identity verification; do not merge or promote based on name alone."
+    },
+    {
+      "id": "landmark_name_collision_review",
+      "status": "COMPLETED",
+      "dependencies": ["landmark_osm_candidate_report"],
+      "checkpoint": "Reviewed two exact-name ambiguities using staged OSM identities and tags. Golconda relation is the fort; the same-name node is a bus station and remains a separate transport record. Taramati point and museum polygon are about 62 m apart; the point has a Wikidata/Wikipedia identity while the polygon does not. Their canonical relationship remains unresolved; both rows are preserved.",
+      "tests": [],
+      "artifacts": ["data/local_pilot/hyderabad/pbf/landmark-match-ambiguity-review.md"],
+      "recovery": "Keep unresolved Taramati source records distinct pending independent identity review. Do not merge or retire links."
+    },
+    {
+      "id": "token_overlap_scan_actual_dataset",
+      "status": "PENDING",
+      "dependencies": ["landmark_osm_candidate_report", "landmark_osm_audit_implementation"],
+      "checkpoint": "Owner explicitly deferred optional similarity scans to Session A. An inefficient one-off scan was stopped before writing output; the validated exact-name report and source data are unchanged.",
+      "tests": [],
+      "artifacts": [],
+      "recovery": "Do not retry in this session. Session A can use the tested audit implementation with a precomputed token index if unmatched-name resolution is needed."
+    },
+    {
+      "id": "local_product_integration_review",
+      "status": "COMPLETED",
+      "dependencies": ["hyderabad_stage_validation"],
+      "checkpoint": "Read-only review confirmed the integration worktree contains the existing frontend and itinerary modules. The frontend still uses mock data. The Worker adapter maps validated PBF records to OSM candidates, but direct cycle intake is incompatible with the current OSM cursor mode; the database migration's accepted source name and existing RPC contract must be extended or a distinct reviewed intake path provided before queue persistence.",
+      "tests": [],
+      "artifacts": ["worker/src/pbf-stage-contract.ts", "worker/test/pbf-stage-contract.test.mjs"],
+      "recovery": "No recovery required for the read-only review. Keep data intake blocked until source cursor and persistence contracts are made compatible."
+    },
+    {
+      "id": "offline_pbf_cycle_intake",
+      "status": "BLOCKED_DEPENDENCY",
+      "dependencies": ["local_product_integration_review"],
+      "checkpoint": "The existing discovery RPC persists cursor/page state for the OSM source, while Worker OSM discovery interprets cursor state as Overpass tiles. Reusing it for offline PBF pages would corrupt resume semantics. Current migration restricts source names to openstreetmap and wikidata.",
+      "tests": [],
+      "artifacts": [],
+      "recovery": "Requires a distinct offline PBF intake mode/source and compatible additive database RPC/schema contract, followed by isolated PostgreSQL regression tests. No production writes are authorized."
+    },
+    {
+      "id": "frontend_itinerary_real_data_integration",
+      "status": "BLOCKED_PERMISSION",
+      "dependencies": ["offline_pbf_cycle_intake"],
+      "checkpoint": "Existing frontend and itinerary source is in a sibling worktree outside the writable root. Read-only review was possible; editing those files is denied by the current workspace boundary.",
+      "tests": [],
+      "artifacts": [],
+      "recovery": "Resume when the Localise app/worktree is provided as a writable workspace or an approved editing path is available. Keep synthetic fixtures explicitly labeled meanwhile."
+    }
+  ],
+  "history": [
+    {
+      "at": "2026-11-25T09:18:00+05:30",
+      "event": "Fast-track handoff checks completed. Updated Worker integration assertions for the current versioned OSM cursor and verified the full integration Worker test suite and TypeScript typecheck.",
+      "evidence": "Integration Worker tests: 22/22 passed; TypeScript 5.9.3 --noEmit check passed. Two earlier failures were stale test expectations for the three-kind OSM cursor; production behavior and assertions were retained. Owner-deferred identity and landmark research remains pending for Session A."
+    },
+    {
+      "at": "2026-11-25T08:37:00+05:30",
+      "event": "Owner fast-track decision received. Landmark enrichment, unmatched-name research, optional similarity analysis, current hours, admission, and visit durations are deferred to Session A. This session is closing after integration checks and local handoff commit.",
+      "evidence": "All 20 draft landmarks remain unroutable; extraction artifacts and the exact-name candidate report are preserved."
+    },
+    {
+      "at": "2026-11-25T08:10:00+05:30",
+      "event": "Added and tested exact-name OSM candidate audit for draft landmarks; no facts were filled and no record was promoted. Worker 22/22 tests and TypeScript typecheck passed.",
+      "evidence": "Python focused suite 12/12; worker npm test 22/22; npm run typecheck exit 0. Standalone real-dataset candidate report was deferred after executable permission denial."
+    },
+    {
+      "at": "2026-11-25T08:16:00+05:30",
+      "event": "Expanded official-source review to all 20 draft names without editing the starter fixture. Eleven have individual page-level evidence; nine remain list-level only.",
+      "evidence": "data/local_pilot/hyderabad/landmark-evidence-review.md; all candidates remain draft-only and unroutable."
+    },
+    {
+      "at": "2026-11-25T08:22:00+05:30",
+      "event": "Generated and validated an exact-name-only report matching the 20 draft landmarks against the completed local OSM stage.",
+      "evidence": "5,893 input records streamed; 12 draft names have candidates, 2 are ambiguous, 8 have no exact candidate; 14 unique OSM rows; provenance valid; no draft promoted."
+    },
+    {
+      "at": "2026-11-25T08:23:00+05:30",
+      "event": "Reviewed two ambiguous landmark-name candidate groups using OSM tags and linked identifiers.",
+      "evidence": "Golconda name collision is an attraction versus bus station; Taramati is a 62.2 m point/polygon relationship candidate retained unresolved. No entities merged."
+    },
+    {
+      "at": "2026-11-25T08:24:00+05:30",
+      "event": "Added nonbinding token-overlap suggestions for unmatched draft names and a focused regression test.",
+      "evidence": "Python focused suite passed 13/13. Suggestions are deterministic and never alter exact-match, approval, identity, or routability status."
+    },
+    {
+      "at": "2026-11-25T08:25:00+05:30",
+      "event": "Stopped an inefficient, optional token-overlap analysis before it wrote output; no existing data was modified.",
+      "state": "FAILED_RETRYABLE",
+      "evidence": "Process launched by this session was verified by start time and stopped; recovery requires precomputed token indexing or the approved Python test path."
+    },
+    {
+      "at": "2026-11-25T08:27:00+05:30",
+      "event": "Reviewed current Ramoji Film City public visitor details and compared official and OSM coordinates.",
+      "evidence": "Telangana Tourism coordinate and OSM relation differ by 38.64 km; hours are published but location must be resolved before routing. Draft remains unroutable."
+    },
+    {
+      "at": "2026-11-25T07:55:13+05:30",
+      "event": "Generated a duplicate review artifact without modifying or merging any records.",
+      "evidence": "5 shared-QID groups, 92 same-name/near-coordinate groups, 227 membership rows."
+    },
+    {
+      "at": "2026-11-25T07:51:44+05:30",
+      "event": "150 km Hyderabad extraction completed and the read-only stage validator passed with no errors.",
+      "evidence": "Summary records 5,893 unique OSM source entities; 5,857 core and 36 extended candidates; 96 potential duplicate groups remain for review."
+    },
+    {
+      "at": "2026-11-25T07:06:09+05:30",
+      "event": "Implemented local staging validator and added two regression cases; focused suite passed 11/11.",
+      "evidence": "Command and result are recorded in stage_validation_tool."
+    },
+    {
+      "at": "2026-11-25T06:56:34+05:30",
+      "event": "Permission-aware unattended execution policy recorded in AGENTS.md and this queue.",
+      "evidence": "Repository had no existing AGENTS.md or execution-state queue; source inspection was read-only."
+    },
+    {
+      "at": "2026-11-25T06:56:34+05:30",
+      "event": "Process command-line introspection denied by Windows CIM permissions; no escalation requested.",
+      "state": "BLOCKED_PERMISSION",
+      "impact": "A numeric PID is unavailable in the persistent state file; extractor activity is evidenced by live progress output and checkpoint updates.",
+      "recovery": "Use permitted process-inspection tools if they become available; do not request the same permission repeatedly."
+    }
+  ],
+  "policy": {
+    "max_active_implementation_tasks": 1,
+    "max_simultaneous_resource_intensive_jobs": 1,
+    "production_database_writes": "requires separate approval",
+    "remote_pushes": "requires separate approval",
+    "production_deployment": "requires separate approval"
+  }
+}

@@ -301,9 +301,13 @@ test("collection cycle uses persisted 150 km radius, resumes paged discovery, an
     assert.ok(overpass);
     assert.match(decodeURIComponent(overpass.body), /out center tags;/);
     assert.doesNotMatch(decodeURIComponent(overpass.body), /out center tags 100/);
-    const osmPage = harness.calls.find((call) => call.path === "rpc/persist_tourism_cycle_source_page" && call.body.p_source_name === "openstreetmap");
-    assert.equal(osmPage.body.p_is_complete, true);
-    assert.equal(osmPage.body.p_next_cursor, null);
+    const osmPages = harness.calls.filter((call) => call.path === "rpc/persist_tourism_cycle_source_page" && call.body.p_source_name === "openstreetmap");
+    assert.equal(osmPages.length, 3);
+    assert.equal(osmPages[0].body.p_is_complete, false);
+    assert.ok(osmPages[0].body.p_next_cursor?.version === 1);
+    assert.equal(osmPages[2].body.p_is_complete, true);
+    assert.equal(osmPages[2].body.p_next_cursor, null);
+    const osmPage = osmPages[0];
     assert.equal(osmPage.body.p_items[0].source_id, "node/880001");
     assert.ok(osmPage.body.p_items[0].priority_score > 0);
 
@@ -358,7 +362,12 @@ test("incomplete OSM discovery checkpoints cursor and releases the city lease wi
     assert.equal(response.status, 200);
     const osmPages = harness.calls.filter((call) => call.path === "rpc/persist_tourism_cycle_source_page" && call.body.p_source_name === "openstreetmap");
     assert.equal(osmPages.length, 3);
-    assert.ok(osmPages.every((page) => page.body.p_is_complete === false && page.body.p_next_cursor?.tasks.length > 0));
+    assert.ok(osmPages.every((page) => {
+      const cursor = page.body.p_next_cursor;
+      return page.body.p_is_complete === false
+        && cursor?.version === 1
+        && Object.values(cursor.cursors || {}).some((kindCursor) => kindCursor.pending.length > 0);
+    }));
     assert.ok(harness.calls.some((call) => call.path === "rpc/release_tourism_cycle_source"));
     assert.ok(harness.calls.some((call) => call.path === "rpc/release_tourism_collection_city_lease"));
     assert.ok(!harness.calls.some((call) => call.path === "rpc/finish_tourism_collection_cycle"));

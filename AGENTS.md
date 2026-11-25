@@ -19,3 +19,21 @@ Localise is an intelligent personal tour guide. Product requirements, rollout go
 
 ## Storage
 Keep worktrees, local databases, logs, and collection artifacts on C:. Never use M:. Check C: free space before storage-intensive work and every 15 minutes during collection. Warn below 30 GB and pause storage-intensive work below 20 GB while preserving checkpoints. Store image URLs with attribution/license metadata instead of downloading bulk photographs. Compress large raw archives when appropriate and avoid duplicate dependency or dataset copies. Never delete existing user files or databases.
+
+## Localise v4.1 execution policy
+The v4.1 gated backlog in `docs/V4.1_EXECUTION_BACKLOG.md` is the current implementation strategy and supersedes the earlier continuous six-agent overnight workflow. Use one lead session and at most one specialist session; run no more than one resource-intensive process at a time. Do not restart the legacy multi-agent launcher or create another permanent orchestrator. Keep Mission Control available for monitoring, but do not spend development time redesigning it.
+
+- Prefer the manually downloaded Southern India PBF and existing collector code. Never start or duplicate a PBF download, process an incomplete file, or create a parallel collector. If the expected PBF is absent, continue independent development and check again at meaningful task transitions. Keep source extracts and generated datasets outside Git; `.gitignore` excludes the expected PBF path and local pilot snapshots.
+- For any retained HTTP path, budget and count every physical request, including retries and redirects, before sending; use provider-compliant rate limits and preserve status, byte, and retry evidence. Do not retry unchanged provider failures. An HTTP fallback requires its own scoped approval if selected by a later gate.
+- Use only owner-approved city scope/configuration and a frozen, owner-approved reference list for extraction and acceptance. Keep draft city centers, exceptions, reference landmarks, and licensing proposals explicitly unapproved until the owner approves them.
+- Keep test fixtures separate from collected records. Preserve raw tags and geometry; use original OSM node coordinates or a representative interior point for ways/relations. Leave navigation points null unless checked. Keep source identity separate from canonical place identity and do not make uncertain automatic merges.
+- Do not fabricate missing facts. Preserve provenance and source licensing; do not copy Wikipedia article text or images during the pilot. Store permitted source links and metadata only. Do not publish ODbL-derived data until the required attribution and licensing review is approved.
+- Prefer short, atomic, idempotent local batch jobs. Add durable checkpoint infrastructure only when measured task duration requires it. Report exact commands, artifacts/checksums, observed counts, test results, blockers, and gate status; unknown counts must remain unknown rather than zero.
+
+## Permission-aware unattended execution
+
+Before each task, check existing permissions, prerequisites, and legitimate permitted alternatives. Avoid changing approved command invocation patterns. If additional permission is unavoidable and the task is not a prerequisite for remaining work, mark it BLOCKED_PERMISSION and continue with the highest-priority independent task. Do not repeat unresolved permission requests.
+
+Maintain data/local_pilot/execution_state.json using only these statuses: PENDING, RUNNING, COMPLETED, BLOCKED_PERMISSION, BLOCKED_DEPENDENCY, FAILED_RETRYABLE, and FAILED_REVIEW_REQUIRED. Persist dependencies, checkpoint evidence, test results, artifacts, and safe recovery instructions after significant operations. Revisit deferred tasks when prerequisites or permissions change.
+
+Keep one implementation task active and at most one resource-intensive process running. Preserve checkpoints, memory/disk safeguards, sandbox boundaries, and completed work. Do not bypass sandbox restrictions, fabricate results, or perform production database writes, remote pushes, or deployment without separate approval. Continue independent work while tasks are blocked; stop for human intervention only when useful work is blocked or a required safety/authorization decision is missing.
