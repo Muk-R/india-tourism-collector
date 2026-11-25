@@ -12,12 +12,14 @@ import {
   type TileCursor,
 } from './tourism-data/catalog.ts';
 import { mapPbfStageRecord, type PbfStageRecord } from './pbf-stage-contract.ts';
+import { validatePromotionRequest, validatePublicationRollback } from './offline-publication.ts';
 
 interface Env {
   SUPABASE_URL: string;
   SUPABASE_SECRET_KEY: string;
   ALLOW_LOCAL_HTTP?: string;
   ADMIN_TOKEN: string;
+  ADMIN_ACTOR_ID?: string;
   DEFAULT_RADIUS_KM: string;
   OVERPASS_URL: string;
   WIKIDATA_SPARQL_URL: string;
@@ -1144,10 +1146,15 @@ export default {
         return json({ error: "offset must be a whole number from 0 through 100000." }, 400);
       }
       const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(100, requestedLimit)) : 100;
-      const rows = await db(
-        env,
-        `tourism_city_places?select=distance_km,relevance_score,place:tourism_places!inner(id,canonical_name,category,subcategory,latitude,longitude,address,description,description_source,description_license,website_url,phone,wikipedia_url,image_url,image_author,image_license,importance_score,quality_score,review_status,sources:tourism_place_sources(source_name,source_id,source_url,attribution,license,payload))&city_id=eq.${encode(cityId)}&is_current=eq.true&place.review_status=eq.approved&place.is_active=eq.true&order=relevance_score.desc&limit=${limit}&offset=${offset}`,
-      );
+      let rows: unknown;
+      try {
+        rows = await db(
+          env,
+          `tourism_city_places?select=distance_km,relevance_score,place:tourism_places!inner(id,canonical_name,category,subcategory,latitude,longitude,address,description,description_source,description_license,website_url,phone,wikipedia_url,image_url,image_author,image_license,importance_score,quality_score,review_status,route_ready,sources:tourism_place_sources(source_name,source_id,source_url,attribution,license,payload))&city_id=eq.${encode(cityId)}&is_current=eq.true&place.review_status=eq.approved&place.is_active=eq.true&order=place(importance_score).desc,relevance_score.desc&limit=${limit}&offset=${offset}`,
+        );
+      } catch {
+        return json({ error: "Tourism places service unavailable." }, 502);
+      }
       const publicRows = (Array.isArray(rows) ? rows : []).map((row: any) => {
         const place = row?.place && typeof row.place === "object" ? row.place : {};
         const sources = Array.isArray(place.sources) ? place.sources : [];
@@ -1166,6 +1173,67 @@ export default {
     }
 
     if (!isAdmin(request, env)) return json({ error: "Unauthorized" }, 401);
+
+    if (url.pathname === "/admin/promote-offline-pbf" && request.method === "POST") {
+      const actor = str(env.ADMIN_ACTOR_ID);
+      if (!actor) return json({ error: "Promotion audit actor is not configured." }, 503);
+      let body: unknown;
+      try {
+        const raw = await request.text();
+        if (new TextEncoder().encode(raw).byteLength > 250_000) return json({ error: "Promotion body exceeds 250 KB." }, 413);
+        body = JSON.parse(raw);
+      } catch {
+        return json({ error: "Request body must be valid JSON." }, 400);
+      }
+      const validation = validatePromotionRequest(body);
+      if (!validation.ok) return json({ error: validation.error }, 400);
+      try {
+        const result = await db(env, "rpc/promote_offline_pbf_records", {
+          method: "POST",
+          body: JSON.stringify({
+            p_idempotency_key: validation.value.idempotency_key,
+            p_snapshot_id: validation.value.snapshot_id,
+            p_city_id: validation.value.city_id,
+            p_approval_reference: validation.value.approval_reference,
+            p_approved_by: actor,
+            p_records: validation.value.records,
+          }),
+        });
+        return json(result);
+      } catch (error: unknown) {
+        const unavailable = error instanceof TypeError || /^Supabase 5\d\d/.test(String((error as Error)?.message || ""));
+        return json({ error: unavailable ? "Promotion service unavailable." : "Promotion rejected; no records were published." }, unavailable ? 502 : 409);
+      }
+    }
+
+    if (url.pathname === "/admin/rollback-offline-pbf-publication" && request.method === "POST") {
+      const actor = str(env.ADMIN_ACTOR_ID);
+      if (!actor) return json({ error: "Promotion audit actor is not configured." }, 503);
+      let body: unknown;
+      try {
+        const raw = await request.text();
+        if (new TextEncoder().encode(raw).byteLength > 16_000) return json({ error: "Rollback body exceeds 16 KB." }, 413);
+        body = JSON.parse(raw);
+      } catch {
+        return json({ error: "Request body must be valid JSON." }, 400);
+      }
+      const validation = validatePublicationRollback(body);
+      if (!validation.ok) return json({ error: validation.error }, 400);
+      try {
+        const result = await db(env, "rpc/rollback_offline_pbf_publication", {
+          method: "POST",
+          body: JSON.stringify({
+            p_idempotency_key: validation.value.idempotency_key,
+            p_rollback_reference: validation.value.rollback_reference,
+            p_rolled_back_by: actor,
+          }),
+        });
+        return json(result);
+      } catch (error: unknown) {
+        const unavailable = error instanceof TypeError || /^Supabase 5\d\d/.test(String((error as Error)?.message || ""));
+        return json({ error: unavailable ? "Publication rollback service unavailable." : "Rollback rejected; current record state was preserved." }, unavailable ? 502 : 409);
+      }
+    }
 
     if (url.pathname === "/admin/stats" && request.method === "GET") {
       const [cities, places, runs, cycles, queue, discovery, legacyQueue] = await Promise.all([

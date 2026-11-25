@@ -101,7 +101,7 @@ Cloudflare documents `--dry-run` as compile-only and documents that `secret put`
 - No reviewed real tourism records have passed the licensing and human-publication gates; the 5,893 records remain private.
 - Production Supabase migration history and auth-provider configuration were not inspected. Cloudflare secret values were not intentionally requested; one anomalous binding name needs owner review as described below.
 - Login/social were not verified against a live auth provider; local runtime config is unset.
-- No public deployment has occurred. The only browser-approved rows were local synthetic fixtures.
+- The Localise frontend has an existing temporary-site deployment, but no Hyderabad real-record publication has occurred. The browser-approved canonical rows in local verification were isolated test fixtures only.
 
 ## Owner intervention required
 
@@ -109,3 +109,73 @@ Cloudflare documents `--dry-run` as compile-only and documents that `secret put`
 2. Have the authorized production database owner review migration history and schema drift, since this session cannot access live Supabase under repository instructions.
 3. Approve ODbL treatment/attribution and select individually reviewed real place records. Current count eligible for public approval is zero; staged rows stay private until this review.
 4. Once those gates pass, explicitly approve the exact production migration, snapshot import, Worker version, site commit, and deployment sequence in the release report. No blanket approval is assumed.
+
+## Hyderabad real-data release addendum — 2026-11-26
+
+### Verified cause of the empty places experience
+
+Previously authorized read-only production inspection found `/public/cities` healthy and `/public/places` failing because the production schema lacks fields selected by the Worker (`tourism_city_places.is_current` and `tourism_places.importance_score`). The legacy 108 Hyderabad links were pending, so none passed the approved/active public filter. The separate 47,827-record Session B intake is not present in production. No production database, Worker, or website was changed in this implementation pass.
+
+The local Worker now projects only safe public place/source fields, ranks by `tourism_places.importance_score` before link relevance, and returns generic JSON 502 on database errors. Places can be displayed with map pins while `route_ready=false`; map directions remain gated. A narrow additive compatibility migration was added rather than coupling the public API fix to the broader collection-cycle migration.
+
+### Exact migration proposal for owner review
+
+The following files were applied on a fresh isolated PostgreSQL database and verified there. Production application is not authorized by this report:
+
+1. `supabase/migrations/20261125_offline_pbf_staging.sql` — private snapshot staging and service-role-only importer RPCs; RLS enabled, no publication.
+2. `supabase/migrations/20261126_route_readiness.sql` — adds `route_ready=false` and requires approved+active state for any route-ready row.
+3. `supabase/migrations/20261127_public_places_api_compat.sql` — adds `tourism_city_places.is_current=true` and `tourism_places.importance_score=0` with a 0–100 constraint. Existing rows remain subject to their pending review state.
+
+The separate `20261124_collection_cycles.sql` is excluded from this narrow website repair. It changes collector semantics and its own header requires a coordinated Worker release before collection resumes. The production owner must first check migration history and take a database backup/restore point, then review the exact migration diff and schema state.
+
+### Data and licensing proposal
+
+The current candidate package is derived from the frozen Session B source snapshot `localise-f8973357b9ba729edf052254379162b6dd6d6399b9037963a971cd28bd57862f`, dated `2026-11-23T21:21:17Z`. It contains 500 unique source identities: 100 importance-ranked attraction candidates, 200 restaurant candidates, and 200 accommodation candidates; categories overlap. Snapshot SHA-256 is `7199012dd8a39f28547b6fcebbee4780543971cf4ab2aebe0e5c838bc06d5380`. The current source-key set exactly matched between package and isolated database (SHA-256 `32022ab99411d712db2d6a3af221404f489c5dc25ba0d8e97035977743fecc04`). These 500 records have been persisted twice idempotently in isolated staging and finalized as 500 review-only / 0 quarantine / 0 itinerary-ready. This is a candidate count, not a public approval count.
+
+**Real records cleared for publication: 0.** The source set uses OpenStreetMap ODbL-1.0 and requires visible `© OpenStreetMap contributors` attribution. Owner/legal review of ODbL use is still required before public distribution. No article text has been copied. Eleven Hyderabad landmark identity/significance notes have individual official-source references; nine more candidates have only list-level references. No historical summary has reuse clearance for publication yet, so the release-ready sourced-summary count is 0. Nearby-escape publication count is 0; Ramoji Film City entrance coordinates remain unresolved.
+
+The 500-candidate import uses the existing authorization-gated private importer in five 100-record batches. Expected first import is 500 inserted; exact replay is 0 inserted / 500 existing; finalization is 500 review-only / 0 quarantine. Importer finalization does not approve or publish. No bridge from private staging to canonical public place rows exists, so an explicit, separately reviewed publication workflow is still needed after owner/editorial decisions. Do not import these candidates directly into public tables or bypass review.
+
+### Verified isolated website behavior
+
+Edge/Playwright loaded the existing website from its isolated checkout and fetched its API through the actual local Worker HTTP adapter, PostgREST 16.6, and PostgreSQL 17.12. A seven-row source-derived disposable fixture rendered five attractions, one restaurant, and one accommodation record with OSM attribution; it was not the release candidate data. Search, category filters, importance order, five map pins, and 390 px / 1440 px layouts passed; every HTTP API response was 200 and neither viewport overflowed. A map-legend blank-link issue was repaired. All fixture places were correctly displayed as map pins only because `route_ready=false`.
+
+Itineraries remain unavailable because verified visit durations, hours, and routing are absent. Current auth provider configuration/client was unavailable in the isolated browser; only login-dialog and social-panel navigation were exercised. Live login and social posting are release blockers, not passed functionality.
+
+### Approval bundle and rollback
+
+Before a release, the owner must approve in one written response: (a) applying exactly the three migration files above after migration-history/backup verification, (b) ODbL treatment and attribution, (c) the individually reviewed per-record publication manifest (currently zero records approved), (d) the exact Worker source/version and required server-side bindings, and (e) updating the existing Localise site's configurable API origin and deploying its reviewed commit. The current candidate snapshot may be imported only into private staging; approval of the importer does not approve public publication.
+
+The reviewed code checkpoints are collector commit `d2c0740` and existing Localise checkout commit `3afacd2`. The site's `localise-config.js` and the collector `worker/wrangler.toml` still contain user-owned uncommitted changes and were excluded from both commits; review those existing changes before any hosted release build. The latest Worker Wrangler dry-run is blocked by sandbox filesystem traversal before bundling. Do not broaden access to the user profile. Use the supported hosted CI runner for the approved release build; no Worker upload or site deployment was performed in this pass.
+
+Keep the previous Worker and website version IDs as rollback targets. If the API health check fails, restore the prior Worker version; if site rendering fails, restore the prior existing `localise` Worker site version or switch its API origin back. Leave additive schema and private staging rows in place for investigation; use reviewed forward fixes rather than deleting data. No deployment or production migration was performed here.
+
+## Automated editorial package — 2026-11-26
+
+Start at [`outputs/session-a-hyderabad-editorial-2026-11-26/README.md`](../outputs/session-a-hyderabad-editorial-2026-11-26/README.md), then review [`Hyderabad_Candidate_Approval.csv`](../outputs/session-a-hyderabad-editorial-2026-11-26/Hyderabad_Candidate_Approval.csv), [`Hyderabad_Historical_Summary_Drafts.csv`](../outputs/session-a-hyderabad-editorial-2026-11-26/Hyderabad_Historical_Summary_Drafts.csv), [`ODbL_and_Reuse_Approval.md`](../outputs/session-a-hyderabad-editorial-2026-11-26/ODbL_and_Reuse_Approval.md), and [`Production_API_Repair_Approval.md`](../outputs/session-a-hyderabad-editorial-2026-11-26/Production_API_Repair_Approval.md).
+
+The 500-row CSV is grouped and sorted: four conditional browse-only attraction proposals; 496 records requiring targeted evidence; zero excluded from that candidate package. Category memberships overlap (100 attraction, 202 food, 200 accommodation). Import/identity verification reconciles all 500 unique source keys with the isolated staged set; package checksum is `7199012dd8a39f28547b6fcebbee4780543971cf4ab2aebe0e5c838bc06d5380`. No CSV owner approval is filled. Four concise historical text drafts are separately identified and not yet licensing/editorially approved. There are no verified customer ratings, review counts, accommodation price tiers, cleared images, itinerary-ready records or navigation-ready records. All source rows remain private until an authorized catalog publication.
+
+Hosted build-only verification passed for exact revisions `d2c0740` and `3afacd2` through draft pull requests. Worker dependency install, tests, typecheck and Wrangler dry-run passed; Worker deploy job was skipped. Website Node tests and asset-exclusion verification passed; website deploy job was skipped. Evidence is retained in [collector PR #2](https://github.com/Muk-R/india-tourism-collector/pull/2) and [website PR #2](https://github.com/Muk-R/localise/pull/2). Both remain draft/unmerged. No production migration or release was performed.
+
+## Current authorized pilot release checkpoint — 2026-11-26
+
+The latest owner message authorizes the four-record browse-only pilot after mandatory checks. This supersedes earlier statements that no owner publication authorization exists; it does not waive backup, schema compatibility, licensing, or validation prerequisites.
+
+### Implemented and isolated-test evidence
+
+Added authenticated Worker routes `/admin/promote-offline-pbf` and `/admin/rollback-offline-pbf-publication`, OpenAPI contracts, and `20261128_offline_pbf_publication.sql`. Promotion selects exact approved OSM source keys from finalized staging and reads names/coordinates/provenance there. It requires source attribution `© OpenStreetMap contributors`, license `ODbL-1.0`, the canonical OSM feature URL and valid coordinates; unknown request fields and route readiness are rejected. Transactions, idempotency conflicts, audit rows and state-checked rollback are implemented. `ADMIN_ACTOR_ID` is supplied to the existing Worker deployment command as the non-secret service identity `localise-pilot-admin`.
+
+On a fresh isolated PostgreSQL 17.12/PostgREST 16.6 database, actual Worker HTTP calls imported five clearly synthetic staging rows, promoted only the four authorized candidate fixture identities, denied anonymous staging/import/promotion access, rejected replay changes and a mixed valid/invalid batch atomically, then rolled back all four. The successful first promotion returned 4; identical replay returned 0 new / 4 existing; rollback returned 4 and repeated rollback was idempotent. Direct database counts at the publication checkpoint were 4 approved browse-only rows, 0 route-ready rows, 4 distinct audit items, and the fifth unapproved record still review-only and absent from canonical public tables. Test data was rolled back; no production records changed.
+
+Full focused Worker tests pass 37/37; TypeScript typecheck and `git diff --check` pass. Existing website API tests pass 8/8; its API adapter retrieved the four isolated records in importance order with attribution, food/stays count 0, and all four non-navigable. Browser rendering for this exact code/data candidate was not verified: Browser Act/Playwright is unavailable, and the installed Edge headless attempt failed to complete in the restricted environment. Do not treat previous browser screenshots as verification of this release.
+
+### Production read-only findings and release hold
+
+The Supabase project reference matches the owner-designated `localise-tourism-pilot`. Read-only metadata showed the production schema has RLS enabled and the public approved-read policies, but lacks the fields required by the current places endpoint (`tourism_places.route_ready`, `importance_score`, and `tourism_city_places.is_current`) as well as the offline staging and publication audit tables. The migration-history list is empty, so verify the current baseline carefully. No production database rows or secrets were read. The available Supabase tools have no backup/snapshot operation; no migration or other production mutation was performed.
+
+The production migration sequence tested locally is `20261124_collection_cycles.sql` → `20261125_offline_pbf_staging.sql` → `20261126_route_readiness.sql` → `20261127_public_places_api_compat.sql` → `20261128_offline_pbf_publication.sql`. Applying this in production remains gated on a current restorable backup and confirming migration-history/baseline compatibility. Then the Worker version must be deployed, the four reviewed staging identities imported and promoted once with an audit approval reference, and the existing website Worker deployed/configured to the same API origin. Smoke-test `/health`, `/public/cities`, `/public/places`, visible OSM attribution, four map labels, unroutable navigation, and mobile/desktop display. Roll back the four-record publication with its idempotency key and rollback reference if catalog checks fail; restore prior Worker and website versions for critical deployment regressions. Preserve additive database/audit rows during rollback.
+
+### Hosted build-only checkpoint
+
+Draft [collector PR #3](https://github.com/Muk-R/india-tourism-collector/pull/3) passed its hosted `verify` job for proposed commit `4bf49a2d4e9e60c5243a267c8d05754b5126b86c`: frozen pnpm install, Worker tests, TypeScript typecheck and Wrangler dry-run all succeeded. The deploy job was skipped. The PR remains unmerged. No production changes have been made because the required restorable backup has not been created or confirmed.

@@ -41,6 +41,41 @@ test("public cities converts database failures to a stable JSON 502", async () =
   }
 });
 
+test("public places converts schema and database failures to a stable JSON 502", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => { throw new Error("private schema detail"); };
+  try {
+    const response = await worker.fetch(new Request("https://worker.test/public/places?city_id=00000000-0000-4000-8000-000000000001"), {
+      ...baseEnv, SUPABASE_URL: "https://database.example",
+    });
+    assert.equal(response.status, 502);
+    assert.match(response.headers.get("content-type"), /application\/json/);
+    assert.deepEqual(await response.json(), { error: "Tourism places service unavailable." });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("public places ranks approved city links by importance before relevance", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestedUrl;
+  globalThis.fetch = async (url) => {
+    requestedUrl = new URL(url);
+    return Response.json([]);
+  };
+  try {
+    const response = await worker.fetch(new Request("https://worker.test/public/places?city_id=00000000-0000-4000-8000-000000000001"), {
+      ...baseEnv, SUPABASE_URL: "https://database.example",
+    });
+    assert.equal(response.status, 200);
+    assert.equal(requestedUrl.searchParams.get("order"), "place(importance_score).desc,relevance_score.desc");
+    assert.equal(requestedUrl.searchParams.get("is_current"), "eq.true");
+    assert.equal(requestedUrl.searchParams.get("place.review_status"), "eq.approved");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("local HTTP remains disabled by default and cannot allow remote cleartext URLs", async () => {
   const originalFetch = globalThis.fetch;
   let called = false;
