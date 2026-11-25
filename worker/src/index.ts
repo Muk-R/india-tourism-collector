@@ -16,6 +16,7 @@ import { mapPbfStageRecord, type PbfStageRecord } from './pbf-stage-contract.ts'
 interface Env {
   SUPABASE_URL: string;
   SUPABASE_SECRET_KEY: string;
+  ALLOW_LOCAL_HTTP?: string;
   ADMIN_TOKEN: string;
   DEFAULT_RADIUS_KM: string;
   OVERPASS_URL: string;
@@ -159,9 +160,11 @@ export async function fetchWithRetry(
 
 async function db(env: Env, path: string, init: RequestInit = {}) {
   const supabaseUrl = new URL(env.SUPABASE_URL);
+  const localLoopbackHttp = env.ALLOW_LOCAL_HTTP === "true" && supabaseUrl.protocol === "http:" &&
+    (supabaseUrl.hostname === "127.0.0.1" || supabaseUrl.hostname === "localhost");
 
   if (
-    supabaseUrl.protocol !== "https:" ||
+    (supabaseUrl.protocol !== "https:" && !localLoopbackHttp) ||
     !supabaseUrl.hostname ||
     supabaseUrl.username ||
     supabaseUrl.password ||
