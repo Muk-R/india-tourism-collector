@@ -11,6 +11,7 @@ import {
   type OSMElement,
   type TileCursor,
 } from './tourism-data/catalog.ts';
+import { mapPbfStageRecord, type PbfStageRecord } from './pbf-stage-contract.ts';
 
 interface Env {
   SUPABASE_URL: string;
@@ -1173,6 +1174,68 @@ export default {
     }
     if (url.pathname === "/admin/review" && request.method === "GET") {
       return reviewPlaces(request, env, url);
+    }
+    if (url.pathname === "/admin/import-offline-pbf/finalize" && request.method === "POST") {
+      let body: any;
+      try { body = await request.json(); } catch { return json({ error: "Request body must be valid JSON." }, 400); }
+      if (typeof body?.snapshot_id !== "string" || body.snapshot_id.length < 16 || body.snapshot_id.length > 160) {
+        return json({ error: "A valid snapshot_id is required." }, 400);
+      }
+      try {
+        const result = await db(env, "rpc/finalize_offline_pbf_import", {
+          method: "POST",
+          body: JSON.stringify({ p_snapshot_id: body.snapshot_id }),
+        });
+        return json(result);
+      } catch (error: any) {
+        const message = error?.message || "Offline PBF finalization failed.";
+        return json({ error: message }, /^Supabase 5\d\d/.test(message) || error instanceof TypeError ? 502 : 409);
+      }
+    }
+    if (url.pathname === "/admin/import-offline-pbf" && request.method === "POST") {
+      let body: any;
+      try {
+        const raw = await request.text();
+        if (new TextEncoder().encode(raw).byteLength > 1_500_000) return json({ error: "Batch body exceeds 1.5 MB." }, 413);
+        body = JSON.parse(raw);
+      } catch {
+        return json({ error: "Request body must be valid JSON." }, 400);
+      }
+      const records = body?.records;
+      if (!Array.isArray(records) || records.length < 1 || records.length > 500 ||
+          typeof body.snapshot_id !== "string" || typeof body.source_snapshot !== "string" ||
+          !/^[0-9a-f]{64}$/.test(body.source_checksum || "") ||
+          body.snapshot_id !== `sha256:${body.source_checksum}` ||
+          !Number.isInteger(body.expected_total) || body.expected_total < records.length || body.expected_total > 100_000) {
+        return json({ error: "Invalid snapshot metadata or batch size." }, 400);
+      }
+      for (const record of records as PbfStageRecord[]) {
+        if (!record || typeof record !== "object" || Array.isArray(record)) {
+          return json({ error: "Invalid offline PBF record: invalid_record" }, 400);
+        }
+        const mapped = mapPbfStageRecord(record, { latitude: 17.385, longitude: 78.4867 }, 150);
+        if (!mapped.accepted && mapped.reason !== "missing_name") {
+          return json({ error: `Invalid offline PBF record: ${mapped.reason}` }, 400);
+        }
+      }
+      try {
+        const result = await db(env, "rpc/import_offline_pbf_batch", {
+          method: "POST",
+          body: JSON.stringify({
+            p_snapshot_id: body.snapshot_id,
+            p_source_snapshot: body.source_snapshot,
+            p_source_checksum: body.source_checksum,
+            p_expected_total: body.expected_total,
+            p_records: records,
+          }),
+        });
+        return json(result);
+      } catch (error: any) {
+        const message = error?.message || "Offline PBF import failed.";
+        const status = /^Supabase 5\d\d/.test(message) || error instanceof TypeError ? 502 :
+          /conflict|immutable|snapshot count mismatch/i.test(message) ? 409 : 400;
+        return json({ error: message }, status);
+      }
     }
     const reviewMatch = url.pathname.match(/^\/admin\/review\/([0-9a-f-]+)$/i);
     if (reviewMatch && request.method === "POST") {

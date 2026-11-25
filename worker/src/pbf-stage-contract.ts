@@ -43,6 +43,9 @@ export function mapPbfStageRecord(
   city: { latitude: number; longitude: number },
   radiusKm: number,
 ): PbfStageMapping {
+  if (!record || typeof record !== "object" || Array.isArray(record)) {
+    return { accepted: false, reason: "invalid_record" };
+  }
   if (!Number.isInteger(radiusKm) || radiusKm < 10 || radiusKm > 150) {
     return { accepted: false, reason: "invalid_cycle_radius" };
   }
@@ -55,6 +58,7 @@ export function mapPbfStageRecord(
   }
   const sourceId = `${record.source_type}/${record.source_id}`;
   if (record.source_key !== sourceId) return { accepted: false, reason: "source_key_mismatch" };
+  if (record.name !== null && typeof record.name !== "string") return { accepted: false, reason: "invalid_name" };
   if (!record.name?.trim()) return { accepted: false, reason: "missing_name" };
   if (!record.raw_tags || typeof record.raw_tags !== "object" || Array.isArray(record.raw_tags)) {
     return { accepted: false, reason: "invalid_raw_tags" };
