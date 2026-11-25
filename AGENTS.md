@@ -11,7 +11,7 @@ Inspect Git status and existing code first. Preserve all current work. Make focu
 Label mock data clearly. Never describe mocks as verified or collected data. Do not invent facts, hours, durations, dietary labels, hotel ratings, historical claims, or source attribution.
 
 ## Safety
-Never read, print, log, copy, or modify secrets, tokens, password files, credential stores, or .env files. Do not inspect environment variable values. Do not access live Supabase, deploy, push, buy services, enable untrusted hooks, or run destructive Git/database operations. Keep workspace sandbox protections enabled.
+Never read, print, log, copy, or modify secrets, tokens, password files, credential stores, or .env files. Do not inspect environment variable values. Do not access live Supabase, deploy, buy services, enable untrusted hooks, or run destructive Git/database operations. Non-destructive pushes to development branches are authorized. Keep workspace sandbox protections enabled.
 Database work is additive. Verify SQL only in a new isolated local database; never reset or drop localise_test or another existing database. Rate-limited public-source collection into isolated local storage is allowed only after the collector is verified, with bounded scope and provider-compliant requests. Never write to a remote database or production service.
 If blocked by a forbidden operation, record the blocker and continue independent work. Before completion, run the task checks, git diff --check, and review the final diff.
 
