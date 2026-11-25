@@ -29,4 +29,15 @@ The Worker tests replace `fetch` with in-memory mocks. They do not contact Supab
 5. Verify source/license attribution and manual city-place preservation with staging fixtures. Automatic stale-link retirement must remain disabled for the pilot.
 6. Confirm ingestion-run counters with product reporting. The current upsert RPC returns a place UUID but does not distinguish a newly inserted place from an updated canonical place; `inserted_count` therefore cannot be made exact without a database RPC change.
 
+The Worker reports `processed` as the number of queue items successfully handled in
+the current invocation. It does not copy that number into
+`tourism_ingestion_runs.inserted_count`: queue items can insert or update a
+canonical place. The current RPC response exposes only the place UUID, while the
+run table has non-null `inserted_count` and `updated_count` columns defaulting to
+zero. Those stored counters are therefore not reliable for cycle-based collection
+until a database change returns an explicit insert/update outcome (or adds an
+accurate processed-item counter). Admin status counts are computed by paging
+PostgREST rows; exact totals under concurrent writes require a database-side
+snapshot/aggregate contract.
+
 Hotels, restaurants, neighborhoods, and travel-corridor datasets can reuse the same city-cycle radius, geographic cursor, source payload, and lease machinery. Their discovery tag/query sets and ranking policy still need a separately scoped implementation and tests.

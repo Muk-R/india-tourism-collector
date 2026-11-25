@@ -1,3 +1,17 @@
+import {
+  buildOverpassQuery,
+  completePendingTile,
+  createTileCursor,
+  deduplicateCandidates,
+  normalizeOsmCandidate,
+  subdividePendingTile,
+  validateBoundingBox,
+  type BoundingBox,
+  type DiscoveryKind,
+  type OSMElement,
+  type TileCursor,
+} from './tourism-data/catalog.ts';
+
 interface Env {
   SUPABASE_URL: string;
   SUPABASE_SECRET_KEY: string;
@@ -84,9 +98,10 @@ const CORS = {
 const MAX_ITEMS_PER_INVOCATION = 5;
 const MAX_DISCOVERY_PAGES_PER_SOURCE_PER_INVOCATION = 3;
 const WIKIDATA_PAGE_SIZE = 250;
-const MAX_OSM_ELEMENTS_PER_TILE = 4_000;
+// The persistence RPC accepts at most 2,000 page items. Subdivide below that
+// limit so large tiles cannot make cursor progress fail at commit time.
+const MAX_OSM_ELEMENTS_PER_PAGE = 1_800;
 const MAX_OSM_SUBDIVISION_DEPTH = 4;
-const OSM_TILE_SIZE_KM = 50;
 const LEASE_SECONDS = 600;
 const MAX_RETRY_AFTER_MS = 30_000;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -366,8 +381,10 @@ export async function getWiki(title: string, env: Env, language = "en"): Promise
   };
 }
 
-type OsmTask = { south: number; west: number; north: number; east: number; depth: number };
-type OsmCursor = { tasks: OsmTask[] };
+type OsmDiscoveryCursor = {
+  version: 1;
+  cursors: Record<DiscoveryKind, TileCursor>;
+};
 type WikidataCursor = { offset: number };
 type DiscoveryCandidate = {
   source_id: string;
@@ -378,59 +395,67 @@ type DiscoveryCandidate = {
 
 class OverpassCapacityError extends Error {}
 
-function osmTaskKey(task: OsmTask): string {
-  return [task.south, task.west, task.north, task.east].map((n) => n.toFixed(5)).join(':');
-}
+const OSM_DISCOVERY_KINDS: DiscoveryKind[] = ['attractions', 'lodging', 'restaurants'];
 
-function rootOsmTasks(city: City, radiusKm: number): OsmTask[] {
+function osmBounds(city: City, radiusKm: number): BoundingBox {
   const kmPerLatitudeDegree = 111.32;
   const longitudeScale = Math.max(0.2, Math.cos((city.latitude * Math.PI) / 180));
-  const latStep = OSM_TILE_SIZE_KM / kmPerLatitudeDegree;
-  const lonStep = OSM_TILE_SIZE_KM / (kmPerLatitudeDegree * longitudeScale);
-  const minLat = Math.max(-90, city.latitude - radiusKm / kmPerLatitudeDegree);
-  const maxLat = Math.min(90, city.latitude + radiusKm / kmPerLatitudeDegree);
+  const latSpan = radiusKm / kmPerLatitudeDegree;
   const lonSpan = radiusKm / (kmPerLatitudeDegree * longitudeScale);
-  const minLon = city.longitude - lonSpan;
-  const maxLon = city.longitude + lonSpan;
-  const tasks: OsmTask[] = [];
+  const bounds = {
+    south: Math.max(-90, city.latitude - latSpan),
+    west: Math.max(-180, city.longitude - lonSpan),
+    north: Math.min(90, city.latitude + latSpan),
+    east: Math.min(180, city.longitude + lonSpan),
+  };
+  validateBoundingBox(bounds);
+  return bounds;
+}
 
-  for (let south = Math.floor(minLat / latStep) * latStep; south < maxLat; south += latStep) {
-    const north = Math.min(90, south + latStep);
-    for (let west = Math.floor(minLon / lonStep) * lonStep; west < maxLon; west += lonStep) {
-      const east = Math.min(180, west + lonStep);
-      const closestLat = Math.max(south, Math.min(city.latitude, north));
-      const closestLon = Math.max(west, Math.min(city.longitude, east));
-      if (distanceKm(city.latitude, city.longitude, closestLat, closestLon) <= radiusKm + 0.01) {
-        tasks.push({ south, west, north, east, depth: 0 });
-      }
-    }
+function initialOsmDiscoveryCursor(city: City, radiusKm: number): OsmDiscoveryCursor {
+  const bounds = osmBounds(city, radiusKm);
+  return {
+    version: 1,
+    cursors: {
+      attractions: createTileCursor(bounds),
+      lodging: createTileCursor(bounds),
+      restaurants: createTileCursor(bounds),
+    },
+  };
+}
+
+function readOsmDiscoveryCursor(
+  city: City,
+  radiusKm: number,
+  value: unknown,
+): OsmDiscoveryCursor {
+  if (value === null || value === undefined) return initialOsmDiscoveryCursor(city, radiusKm);
+  const cursor = value as Partial<OsmDiscoveryCursor> & { tasks?: unknown[] };
+  if (cursor.version === 1 && cursor.cursors && OSM_DISCOVERY_KINDS.every((kind) => {
+    const item = cursor.cursors?.[kind];
+    return item?.version === 1 && Array.isArray(item.pending) && Array.isArray(item.completed);
+  })) return cursor as OsmDiscoveryCursor;
+
+  // Continue cursors written by the previous Worker, whose OSM query discovered
+  // attractions only. Preserve its remaining tiles and start the new categories.
+  if (Array.isArray(cursor.tasks)) {
+    const result = initialOsmDiscoveryCursor(city, radiusKm);
+    result.cursors.attractions = {
+      version: 1,
+      pending: cursor.tasks.map((raw, index) => {
+        const task = raw as { south?: number; west?: number; north?: number; east?: number; depth?: number };
+        const bounds = { south: Number(task.south), west: Number(task.west), north: Number(task.north), east: Number(task.east) };
+        validateBoundingBox(bounds);
+        const id = `legacy-${index}-${[bounds.south, bounds.west, bounds.north, bounds.east].map((n) => n.toFixed(5)).join(':')}`;
+        const depth = Number(task.depth ?? 0);
+        if (!Number.isInteger(depth) || depth < 0) throw new Error('Legacy OSM cursor has an invalid tile depth.');
+        return { id, bounds, depth };
+      }),
+      completed: [],
+    };
+    return result;
   }
-  return tasks.sort((a, b) => {
-    const distance = (task: OsmTask) => distanceKm(
-      city.latitude,
-      city.longitude,
-      (task.south + task.north) / 2,
-      (task.west + task.east) / 2,
-    );
-    return distance(a) - distance(b);
-  });
-}
-
-function splitOsmTask(task: OsmTask): OsmTask[] {
-  const midLat = (task.south + task.north) / 2;
-  const midLon = (task.west + task.east) / 2;
-  const depth = task.depth + 1;
-  return [
-    { south: task.south, west: task.west, north: midLat, east: midLon, depth },
-    { south: task.south, west: midLon, north: midLat, east: task.east, depth },
-    { south: midLat, west: task.west, north: task.north, east: midLon, depth },
-    { south: midLat, west: midLon, north: task.north, east: task.east, depth },
-  ];
-}
-
-function osmQuery(task: OsmTask): string {
-  const box = `${task.south},${task.west},${task.north},${task.east}`;
-  return `[out:json][timeout:45];(nwr(${box})["tourism"~"attraction|museum|gallery|viewpoint|theme_park|zoo|aquarium|artwork|information"];nwr(${box})["historic"]["historic"!="no"];nwr(${box})["amenity"="place_of_worship"];nwr(${box})["leisure"~"park|garden"];nwr(${box})["natural"~"waterfall|beach|cave|peak|hot_spring|volcano"];nwr(${box})["waterway"="waterfall"];);out center tags;`;
+  throw new Error('OSM discovery cursor is not recognized; refusing to mark the source complete.');
 }
 
 async function persistSourcePage(
@@ -485,14 +510,14 @@ async function renewLease(
   });
 }
 
-async function fetchOsmTile(env: Env, task: OsmTask): Promise<any[]> {
+async function fetchOsmTile(env: Env, kind: DiscoveryKind, bounds: BoundingBox): Promise<OSMElement[]> {
   const response = await fetchWithRetry(env.OVERPASS_URL, {
     method: 'POST',
     headers: {
       'content-type': 'application/x-www-form-urlencoded',
       'user-agent': env.USER_AGENT,
     },
-    body: `data=${encode(osmQuery(task))}`,
+    body: `data=${encode(buildOverpassQuery(kind, bounds))}`,
   }, 60_000);
   if (!response.ok) {
     const message = `Overpass HTTP ${response.status}`;
@@ -543,58 +568,62 @@ async function discoverOsmPage(env: Env, city: City, cycle: CycleClaim, source: 
   const sourceLeaseToken = source.lease_token;
   if (!sourceLeaseToken) throw new Error('OSM source claim returned no lease token.');
   const expectedCursor = source.cursor;
-  const cursor = (source.cursor || { tasks: rootOsmTasks(city, cycle.radius_km) }) as OsmCursor;
-  const [task, ...remaining] = cursor.tasks || [];
-  if (!task) {
+  const cursor = readOsmDiscoveryCursor(city, cycle.radius_km, source.cursor);
+  const kind = OSM_DISCOVERY_KINDS.find((candidateKind) => cursor.cursors[candidateKind].pending.length > 0);
+  if (!kind) {
     await persistSourcePage(env, cycle, 'openstreetmap', sourceLeaseToken,
-      `osm:empty:${cycle.radius_km}`, expectedCursor, null, [], true);
+      'osm:v1:complete', expectedCursor, null, [], true);
     return { discovered: 0, complete: true, cursor: null };
   }
+  const kindCursor = cursor.cursors[kind];
+  const task = kindCursor.pending[0];
+  if (!task) throw new Error(`OSM ${kind} cursor lost its pending tile.`);
 
   await pause(1000);
   await renewLease(env, cycle, 'openstreetmap', sourceLeaseToken);
-  let elements: any[];
+  let elements: OSMElement[];
   try {
-    elements = await fetchOsmTile(env, task);
+    elements = await fetchOsmTile(env, kind, task.bounds);
   } catch (error) {
     const splittable = error instanceof OverpassCapacityError && task.depth < MAX_OSM_SUBDIVISION_DEPTH;
     if (!splittable) throw error;
-    const nextCursor: OsmCursor = { tasks: [...splitOsmTask(task), ...remaining] };
+    const nextKindCursor = subdividePendingTile(kindCursor, task.id, MAX_OSM_SUBDIVISION_DEPTH);
+    const nextDiscoveryCursor: OsmDiscoveryCursor = {
+      version: 1,
+      cursors: { ...cursor.cursors, [kind]: nextKindCursor },
+    };
     await persistSourcePage(env, cycle, 'openstreetmap', sourceLeaseToken,
-      `osm:split:${osmTaskKey(task)}`, expectedCursor, nextCursor, [], false);
-    return { discovered: 0, complete: false, subdivided: true, cursor: nextCursor };
+      `osm:v1:${kind}:split:${task.id}`, expectedCursor, nextDiscoveryCursor, [], false);
+    return { discovered: 0, complete: false, subdivided: true, cursor: nextDiscoveryCursor };
   }
 
-  if (elements.length > MAX_OSM_ELEMENTS_PER_TILE && task.depth < MAX_OSM_SUBDIVISION_DEPTH) {
-    const nextCursor: OsmCursor = { tasks: [...splitOsmTask(task), ...remaining] };
+  if (elements.length > MAX_OSM_ELEMENTS_PER_PAGE) {
+    const nextKindCursor = subdividePendingTile(kindCursor, task.id, MAX_OSM_SUBDIVISION_DEPTH);
+    const nextDiscoveryCursor: OsmDiscoveryCursor = {
+      version: 1,
+      cursors: { ...cursor.cursors, [kind]: nextKindCursor },
+    };
     await persistSourcePage(env, cycle, 'openstreetmap', sourceLeaseToken,
-      `osm:split:${osmTaskKey(task)}`, expectedCursor, nextCursor, [], false);
-    return { discovered: 0, complete: false, subdivided: true, cursor: nextCursor };
+      `osm:v1:${kind}:split:${task.id}`, expectedCursor, nextDiscoveryCursor, [], false);
+    return { discovered: 0, complete: false, subdivided: true, cursor: nextDiscoveryCursor };
   }
 
-  const unique = new Map<string, DiscoveryCandidate>();
-  for (const element of elements) {
-    const tags = element?.tags || {};
-    const latitude = element?.lat ?? element?.center?.lat;
-    const longitude = element?.lon ?? element?.center?.lon;
-    const name = str(tags.name || tags['name:en'] || tags['name:hi']);
-    if (!name || !Number.isFinite(latitude) || !Number.isFinite(longitude)) continue;
-    if (distanceKm(city.latitude, city.longitude, latitude, longitude) > cycle.radius_km) continue;
-    if (!['node', 'way', 'relation'].includes(element.type) || !Number.isInteger(element.id)) continue;
-    const sourceId = `${element.type}/${element.id}`;
-    const importance = scoreImportance('openstreetmap', element);
-    unique.set(sourceId, {
-      source_id: sourceId,
-      raw_payload: element,
-      priority_score: importance.score,
-      priority_reasons: importance.reasons,
-    });
-  }
-  const isComplete = remaining.length === 0;
-  const nextCursor = isComplete ? null : { tasks: remaining };
+  const normalized = deduplicateCandidates(elements.map((element) => normalizeOsmCandidate(kind, element)));
+  const candidates: DiscoveryCandidate[] = normalized
+    .filter((candidate) => distanceKm(city.latitude, city.longitude, candidate.latitude, candidate.longitude) <= cycle.radius_km)
+    .map((candidate) => ({
+      source_id: candidate.source_id,
+      raw_payload: candidate.evidence.payload,
+      priority_score: candidate.importance_score,
+      priority_reasons: candidate.importance_reasons,
+    }));
+  const nextKindCursor = completePendingTile(kindCursor, task.id);
+  const nextCursors = { ...cursor.cursors, [kind]: nextKindCursor };
+  const isComplete = OSM_DISCOVERY_KINDS.every((candidateKind) => nextCursors[candidateKind].pending.length === 0);
+  const nextCursor: OsmDiscoveryCursor | null = isComplete ? null : { version: 1, cursors: nextCursors };
   await persistSourcePage(env, cycle, 'openstreetmap', sourceLeaseToken,
-    `osm:tile:${osmTaskKey(task)}`, expectedCursor, nextCursor, [...unique.values()], isComplete);
-  return { discovered: unique.size, complete: isComplete, cursor: nextCursor };
+    `osm:v1:${kind}:tile:${task.id}`, expectedCursor, nextCursor, candidates, isComplete);
+  return { discovered: candidates.length, complete: isComplete, cursor: nextCursor, kind };
 }
 
 function wikidataQuery(city: City, radiusKm: number, offset: number): string {
@@ -943,7 +972,6 @@ async function runClaimedCycle(env: Env, cycle: CycleClaim) {
       osm_count: discovered.openstreetmap,
       wikidata_count: discovered.wikidata,
       wikipedia_count: wikipediaCount,
-      inserted_count: processed,
       error_message: errors.join(' | ') || null,
     });
 

@@ -1,0 +1,30 @@
+# Hyderabad Southern India PBF extraction runbook
+
+Status: preparation only. No PBF has been found, installed, opened, extracted, or benchmarked. This is a gated procedure, not a claim that a collector is ready.
+
+## Preconditions
+
+1. Find the manually downloaded `southern-zone-latest.osm.pbf` in Downloads or `data/raw`. Do not download another copy or process browser partials such as `.crdownload`, `.part`, or `.tmp`.
+2. Confirm the download is complete: final expected filename, no active download process/temporary companion, stable byte size and timestamp across two checks separated by a reasonable interval, and successful read-only PBF header/file readability validation. Then record exact path, byte size, SHA-256, source, and provider snapshot timestamp. Hashing a large file is a read-only full-file scan; do it once after stability is established.
+3. Obtain owner approval for city center, integer radius (10–150 km, 40 km default), exceptions, the draft attraction reference, data-contract mapping, and licensing/release policy. Current candidate coordinates and draft fixture are not approvals.
+4. Check C: free space and available memory. Keep all temporary index/spool/output under C:. Warn below 30 GB free and pause storage-intensive work below 20 GB. Preserve the PBF and all prior artifacts.
+
+## Bounded streaming design (target peak RAM <= 2 GiB)
+
+- Use the already installed Python launcher and an isolated project venv only after the PBF is complete and the benchmark gate authorizes dependency installation. Pyosmium supports streaming handlers; do not call `read_bytes`, deserialize the entire PBF, or accumulate all OSM objects in Python collections.
+- Open the PBF with a Pyosmium handler/FileProcessor and process node, way, relation, and area callbacks. Copy only required primitive fields during each callback because Pyosmium objects are callback-scoped. Retain stable source identity as `(osm_type, osm_id)`, raw tags, source snapshot and geometry evidence. For ways, enable node locations with a file-backed sparse location index on C: (for example `sparse_file_array,<scratch-index-path>`) rather than an in-memory node map. Windows may not support mmap index variants; test the exact installed build before choosing one. Do not assume area assembly is free: an area callback causes an additional scan and relation assembly, so measure peak memory/time on a representative small fixture before the regional PBF.
+- Write each accepted candidate immediately to a bounded newline-delimited JSON spool or local SQLite staging table, with a unique key on typed OSM identity. Keep only counters and small fixed buffers in memory. Write to a run-specific temporary artifact, flush/checkpoint periodically, and atomically publish the completed output only after a clean end-of-file and validation. On interruption, preserve the source and checkpoint; never label a partial output complete.
+- Include all tourism-relevant categories from the reviewed mapping; do not use population, hotel proximity, settlement density, or a 100-row cap as a filter. Preserve unnamed raw features for review. Treat Wikidata/Wikipedia tags only as passive source links; do not copy article text or images.
+- Apply the exact-radius Haversine check against the approved city center to the selected representative coordinate. For nodes use their source coordinate; for ways/areas compute a documented representative interior point from valid geometry, not an arbitrary bounding-box center. Keep navigation coordinates null unless independently verified. Record out-of-radius candidates as excluded with reason/counters rather than silently clipping them.
+- Do not automatically merge distinct OSM identities, retire city links, or promote draft attractions. Keep source identity separate from canonical identity. Preserve raw tags, ODbL attribution, snapshot metadata, and geometry/provenance fields.
+- Keep complete response counts and rejection reasons. Candidate extraction is not proof of visitor suitability; a separate validator/audit applies the frozen landmark reference and flags missing/invalid coordinates, radius violations, duplicates, missing source identity/provenance, or geometry failures.
+
+## Benchmark and acceptance sequence
+
+1. Run dependency/import smoke checks and a tiny synthetic PBF fixture test; verify nodes/ways/relations, invalid locations, repeated source IDs, geometry handling, radius boundary, and interruption behavior. No live API or database.
+2. On a small representative regional slice, measure elapsed time, maximum working set, temporary-index bytes, output bytes, and accepted/rejected counts. Stop if peak memory approaches 2 GiB, storage approaches the 20 GB floor, or processing is unstable; tune the disk-backed index/spool before full-file work.
+3. Only after the small benchmark passes, process the approved Hyderabad scope from the completed regional file. Keep extraction sequential and bounded; no concurrent heavy job.
+4. Validate the resulting artifact in a separate read-only pass, then compare it with the approved reference. Import/staging writes require their own explicit gate. No production database or deployment.
+5. Record exact command, interpreter/package versions, PBF checksum/snapshot, artifact checksum, resource observations, counters, test results, and unresolved gaps in `docs/PILOT_EVIDENCE.md` and `docs/BASELINE_BENCHMARK.md`. Unknown counts stay unknown; do not report an incomplete run as city-complete.
+
+Pyosmium callback and file-processing behavior: https://docs.osmcode.org/pyosmium/latest/reference/Handler-Processing/ and https://docs.osmcode.org/pyosmium/latest/user_manual/03-Working-with-Geometries/. File-based sparse index trade-offs: https://docs.osmcode.org/osmium/latest/osmium-index-types.html. Package compatibility must be verified against PyPI release files for the machine architecture before installation: https://pypi.org/project/osmium/.

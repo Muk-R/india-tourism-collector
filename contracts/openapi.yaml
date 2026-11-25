@@ -77,10 +77,10 @@ paths:
       security: [{ AdminBearer: [] }]
       responses:
         '200':
-          description: Status counts for cities, places, runs, cycles, queues, and discovery.
+          description: Status counts for cities, places, runs, cycles, queues, and discovery. Counts are paged reads and may shift while collection is active.
           content:
             application/json:
-              schema: { type: object, additionalProperties: true }
+              schema: { $ref: '#/components/schemas/AdminStats' }
         '401': { $ref: '#/components/responses/Unauthorized' }
   /admin/review:
     get:
@@ -373,6 +373,31 @@ components:
         queue: { type: object, additionalProperties: { type: integer } }
         errors: { type: array, items: { type: string } }
         retired_links: { type: integer }
+    StatusCounts:
+      type: object
+      additionalProperties: { type: integer, minimum: 0 }
+    QueueStatusCounts:
+      type: object
+      required: [pending, processing, retryable, failed, completed, exhausted, superseded]
+      properties:
+        pending: { type: integer, minimum: 0 }
+        processing: { type: integer, minimum: 0 }
+        retryable: { type: integer, minimum: 0 }
+        failed: { type: integer, minimum: 0 }
+        completed: { type: integer, minimum: 0 }
+        exhausted: { type: integer, minimum: 0 }
+        superseded: { type: integer, minimum: 0 }
+    AdminStats:
+      type: object
+      required: [cities, places, runs, cycles, queue, discovery, legacy_queue]
+      properties:
+        cities: { $ref: '#/components/schemas/StatusCounts' }
+        places: { $ref: '#/components/schemas/StatusCounts' }
+        runs: { $ref: '#/components/schemas/StatusCounts' }
+        cycles: { $ref: '#/components/schemas/StatusCounts' }
+        queue: { $ref: '#/components/schemas/QueueStatusCounts' }
+        discovery: { $ref: '#/components/schemas/StatusCounts' }
+        legacy_queue: { $ref: '#/components/schemas/StatusCounts' }
     CitySummary:
       type: object
       properties:

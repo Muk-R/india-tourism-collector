@@ -19,3 +19,7 @@ A city cycle owns its persisted radius and checkpoints. OSM and Wikidata discove
 
 ## Integration
 Review contracts before client integration. Agents work in isolated worktrees with disjoint ownership. Integrate only reviewed, tested local commits. Never write live Supabase or deploy during autonomous development.
+
+
+## v4.1 implementation status correction (2026-11-25)
+The earlier statement above that no frontend or itinerary source exists is stale. The integration baseline contains both `frontend/` and `itinerary/` pilot implementations, plus the Worker and additive collection-cycle migration. Preserve and extend these implementations; do not scaffold replacements. The gated current backlog is `docs/V4.1_EXECUTION_BACKLOG.md`. Offline Southern India PBF extraction remains a planned workflow and has not been implemented or benchmarked yet.
