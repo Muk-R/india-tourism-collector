@@ -97,6 +97,13 @@ Cloudflare documents `--dry-run` as compile-only and documents that `secret put`
 ## Current blockers
 
 - No reviewed real tourism records have passed the licensing and human-publication gates; the 5,893 records remain private.
-- No production migration history, credentials, or auth provider configuration was inspected.
+- Production Supabase migration history and auth-provider configuration were not inspected. Cloudflare secret values were not intentionally requested; one anomalous binding name needs owner review as described below.
 - Login/social were not verified against a live auth provider; local runtime config is unset.
 - No public deployment has occurred. The only browser-approved rows were local synthetic fixtures.
+
+## Owner intervention required
+
+1. In Cloudflare Dashboard, open Workers & Pages → `india-tourism-collector` → Settings → Variables and Secrets. Review binding names only; do not copy or send any secret values. Confirm the expected names are exactly `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, and `ADMIN_TOKEN`. If any binding name contains token-like text or is malformed, treat the associated credential as exposed: rotate the Supabase service-role key, replace the correctly named Cloudflare secret, and verify the malformed binding is unused before removing it. Do not share the new values.
+2. Have the authorized production database owner review migration history and schema drift, since this session cannot access live Supabase under repository instructions.
+3. Approve ODbL treatment/attribution and select individually reviewed real place records. Current count eligible for public approval is zero; staged rows stay private until this review.
+4. Once those gates pass, explicitly approve the exact production migration, snapshot import, Worker version, site commit, and deployment sequence in the release report. No blanket approval is assumed.
