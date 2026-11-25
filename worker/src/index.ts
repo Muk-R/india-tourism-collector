@@ -1125,14 +1125,36 @@ export default {
     if (url.pathname === "/public/places" && request.method === "GET") {
       const cityId = url.searchParams.get("city_id") || "";
       if (!UUID_RE.test(cityId)) return json({ error: "A valid city_id is required." }, 400);
-      const requestedLimit = Number(url.searchParams.get("limit") || 100);
+      const limitValue = url.searchParams.get("limit") || "100";
+      const offsetValue = url.searchParams.get("offset") || "0";
+      if (!/^\d+$/.test(limitValue) || !/^\d+$/.test(offsetValue)) {
+        return json({ error: "limit and offset must be whole numbers; limit is from 1 through 100 and offset is nonnegative." }, 400);
+      }
+      const requestedLimit = Number(limitValue);
+      const offset = Number(offsetValue);
+      if (!Number.isSafeInteger(offset) || offset > 100_000) {
+        return json({ error: "offset must be a whole number from 0 through 100000." }, 400);
+      }
       const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(100, requestedLimit)) : 100;
-      return json(
-        await db(
-          env,
-          `tourism_city_places?select=distance_km,relevance_score,place:tourism_places!inner(*)&city_id=eq.${encode(cityId)}&is_current=eq.true&place.review_status=eq.approved&place.is_active=eq.true&order=relevance_score.desc&limit=${limit}`,
-        ),
+      const rows = await db(
+        env,
+        `tourism_city_places?select=distance_km,relevance_score,place:tourism_places!inner(id,canonical_name,category,subcategory,latitude,longitude,address,description,description_source,description_license,website_url,phone,wikipedia_url,image_url,image_author,image_license,importance_score,quality_score,review_status,sources:tourism_place_sources(source_name,source_id,source_url,attribution,license,payload))&city_id=eq.${encode(cityId)}&is_current=eq.true&place.review_status=eq.approved&place.is_active=eq.true&order=relevance_score.desc&limit=${limit}&offset=${offset}`,
       );
+      const publicRows = (Array.isArray(rows) ? rows : []).map((row: any) => {
+        const place = row?.place && typeof row.place === "object" ? row.place : {};
+        const sources = Array.isArray(place.sources) ? place.sources : [];
+        const areaClasses = new Set(
+          sources
+            .map((source: any) => source?.payload?.localise_stage?.area_class)
+            .filter((value: unknown) => value === "core_hyderabad" || value === "nearby_escape_candidate"),
+        );
+        const areaClass = areaClasses.size === 1 ? [...areaClasses][0] : undefined;
+        const publicSources = sources.map(({ payload: _payload, ...source }: any) => source);
+        const publicPlace = { ...place, sources: publicSources };
+        if (!publicPlace.image_author || !publicPlace.image_license) delete publicPlace.image_url;
+        return { ...row, ...(areaClass ? { area_class: areaClass } : {}), place: publicPlace };
+      });
+      return json(publicRows);
     }
 
     if (!isAdmin(request, env)) return json({ error: "Unauthorized" }, 401);

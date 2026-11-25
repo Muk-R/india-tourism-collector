@@ -60,6 +60,10 @@ paths:
         - name: limit
           in: query
           schema: { type: integer, minimum: 1, maximum: 100, default: 100 }
+        - name: offset
+          in: query
+          description: Zero-based page offset; values above 100000 are rejected.
+          schema: { type: integer, minimum: 0, maximum: 100000, default: 0 }
       responses:
         '200':
           description: Current city-place links ordered by relevance score.
@@ -352,6 +356,10 @@ components:
       properties:
         distance_km: { type: number }
         relevance_score: { type: [number, 'null'] }
+        area_class:
+          type: [string, 'null']
+          enum: [core_hyderabad, nearby_escape_candidate, null]
+          description: Present when validated PBF stage provenance supports the classification.
         place: { $ref: '#/components/schemas/Place' }
     ReviewItem:
       type: object
