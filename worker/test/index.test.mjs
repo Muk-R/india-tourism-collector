@@ -219,6 +219,7 @@ function collectionHarness(options = {}) {
         }
         return responseJson(options.queueRows || []);
       }
+      if (path === "tourism_city_places") return responseJson(options.publicPlaces || []);
       if (path === "rpc/claim_tourism_collection_cycle") {
         if (options.radiusConflict) return responseJson({ message: "radius differs from active cycle" }, 400);
         return responseJson([cycle]);
@@ -480,6 +481,34 @@ test("public places and admin review exclude retired city-place links", async ()
     const links = harness.calls.filter((call) => call.path === "tourism_city_places");
     assert.equal(links.length, 2);
     assert.ok(links.every((call) => call.query.get("is_current") === "eq.true"));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("public places preserve browse-only route readiness and remove raw source payloads", async () => {
+  const place = {
+    id: "88888888-8888-4888-8888-888888888888", canonical_name: "Charminar", review_status: "approved",
+    is_active: true, route_ready: false, latitude: 17.3616, longitude: 78.4747,
+    sources: [{ source_name: "openstreetmap", source_id: "way/1", source_url: "https://www.openstreetmap.org/way/1", attribution: "© OpenStreetMap contributors", license: "ODbL-1.0", payload: { private_stage: true } }],
+  };
+  const legacyPlace = { ...place, id: "99999999-9999-4999-8999-999999999999", canonical_name: "Golconda Fort" };
+  delete legacyPlace.route_ready;
+  const harness = collectionHarness({ publicPlaces: [
+    { distance_km: 1, relevance_score: 90, place },
+    { distance_km: 2, relevance_score: 80, place: legacyPlace },
+  ] });
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = harness.mockFetch;
+  try {
+    const response = await worker.fetch(new Request(`https://collector.test/public/places?city_id=${TEST_CITY_ID}`), harness.env);
+    assert.equal(response.status, 200);
+    const rows = await response.json();
+    assert.deepEqual(rows.map((row) => row.place.route_ready), [false, false]);
+    assert.equal(rows[0].place.sources[0].license, "ODbL-1.0");
+    assert.equal(Object.hasOwn(rows[0].place.sources[0], "payload"), false);
+    const query = harness.calls.find((call) => call.path === "tourism_city_places").query.get("select");
+    assert.match(query, /route_ready/);
   } finally {
     globalThis.fetch = originalFetch;
   }

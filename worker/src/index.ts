@@ -1165,7 +1165,7 @@ export default {
         );
         const areaClass = areaClasses.size === 1 ? [...areaClasses][0] : undefined;
         const publicSources = sources.map(({ payload: _payload, ...source }: any) => source);
-        const publicPlace = { ...place, sources: publicSources };
+        const publicPlace = { ...place, route_ready: place.route_ready === true, sources: publicSources };
         if (!publicPlace.image_author || !publicPlace.image_license) delete publicPlace.image_url;
         return { ...row, ...(areaClass ? { area_class: areaClass } : {}), place: publicPlace };
       });
