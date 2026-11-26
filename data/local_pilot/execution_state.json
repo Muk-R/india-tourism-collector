@@ -1,10 +1,10 @@
 {
   "version": 1,
-  "updated_at": "2026-11-25T09:18:00+05:30",
-  "active_task_id": null,
-  "session_status": "handoff_ready",
+  "updated_at": "2026-11-26T03:30:00Z",
+  "active_task_id": "production_logical_backup",
+  "session_status": "BLOCKED_PERMISSION",
   "next_phase": {
-    "session_a": "Fast-track Hyderabad website; perform targeted landmark enrichment and resolve the explicitly deferred identity/access questions.",
+    "session_a": "Blocked on valid PostgreSQL connection credential; no dump or restore performed.",
     "session_b": "Plan optimized shared regional extraction for the first 10 cities; reuse the verified bounded-memory pipeline and do not duplicate the Southern India download."
   },
   "tasks": [
@@ -160,7 +160,16 @@
       "tests": [],
       "artifacts": [],
       "recovery": "Resume when the Localise app/worktree is provided as a writable workspace or an approved editing path is available. Keep synthetic fixtures explicitly labeled meanwhile."
-    }
+    },
+      {
+        "id": "production_logical_backup",
+        "status": "BLOCKED_PERMISSION",
+        "dependencies": ["Valid PostgreSQL password available as protected process-scoped PGPASSWORD"],
+        "checkpoint": "Elevated psql reached the authorized project host; PostgreSQL rejected authentication for role postgres. No backup files or restore test created.",
+        "tests": [{"command": "psql read-only TLS identity/version query", "result": "server returned password authentication failed; no credential value read or printed"}],
+        "artifacts": ["private off-Git backup directory exists; empty"],
+        "recovery": "Verify the process-scoped PGPASSWORD is the PostgreSQL database password, not a Supabase API key; retry the read-only connection check before dumping."
+      }
   ],
   "history": [
     {
@@ -235,6 +244,13 @@
       "state": "BLOCKED_PERMISSION",
       "impact": "A numeric PID is unavailable in the persistent state file; extractor activity is evidenced by live progress output and checkpoint updates.",
       "recovery": "Use permitted process-inspection tools if they become available; do not request the same permission repeatedly."
+    },
+    {
+      "at": "2026-11-26T03:30:00Z",
+      "event": "Attempted owner-authorized logical backup connectivity.",
+      "state": "BLOCKED_PERMISSION",
+      "evidence": "PostgreSQL rejected authentication for postgres; no dump or restore. Production unchanged.",
+      "recovery": "Supply valid process-scoped PostgreSQL password and retry read-only identity query."
     }
   ],
   "policy": {
