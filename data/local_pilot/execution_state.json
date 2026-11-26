@@ -1,10 +1,10 @@
 {
   "version": 1,
-  "updated_at": "2026-11-26T03:30:00Z",
+  "updated_at": "2026-11-26T09:45:00Z",
   "active_task_id": "production_logical_backup",
-  "session_status": "BLOCKED_PERMISSION",
+  "session_status": "BLOCKED_DEPENDENCY",
   "next_phase": {
-    "session_a": "Session pooler hostname was supplied; server rejected PostgreSQL password authentication. No dump or restore performed.",
+    "session_a": "Production logical dump and checksums completed unchanged. RAM is now 4.8 GiB free and C: has 87.2 GiB free. Official supabase/postgres:17.12.0.005 is the best local candidate: PG 17.12, bundled supabase_vault and Supabase role seeds verified from official sources. Docker/WSL remain unavailable; archive metadata includes one Vault table-data entry, so decryptability requires separate secure root-key continuity. Actual role-export/restore behavior is untested; do not mark BACKUP READY.",
     "session_b": "Plan optimized shared regional extraction for the first 10 cities; reuse the verified bounded-memory pipeline and do not duplicate the Southern India download."
   },
   "tasks": [
@@ -161,15 +161,15 @@
       "artifacts": [],
       "recovery": "Resume when the Localise app/worktree is provided as a writable workspace or an approved editing path is available. Keep synthetic fixtures explicitly labeled meanwhile."
     },
-      {
-        "id": "production_logical_backup",
-        "status": "BLOCKED_PERMISSION",
-        "dependencies": ["Correct PostgreSQL database password in process-scoped PGPASSWORD"],
-        "checkpoint": "TLS connection to supplied session pooler host was attempted with specified username; PostgreSQL returned FATAL: password authentication failed for user postgres. No backup or restore test created.",
-        "tests": [{"command": "psql read-only TLS identity/version query", "result": "server returned FATAL: password authentication failed for user postgres; PGPASSWORD value not read or printed"}],
-        "artifacts": ["private off-Git backup directory exists; empty"],
-        "recovery": "Verify process-scoped PGPASSWORD is the correct PostgreSQL database password; do not reset or send it in chat. Retry the same read-only TLS connection."
-      }
+    {
+      "id": "production_logical_backup",
+      "status": "BLOCKED_DEPENDENCY",
+      "dependencies": ["Docker-compatible runtime for official Supabase PostgreSQL 17.12 container; secure Vault root-key continuity for decryptability verification"],
+      "checkpoint": "Authenticated TLS read-only connection succeeded as postgres to postgres on PostgreSQL 17.12. Timestamped archive and passwordless roles export created outside Git; archive listing and independent SHA-256/size checks passed and were rechecked unchanged. Runtime inspection: Docker and WSL2 unavailable; RAM now 4.8 GiB free and C: has 87.2 GiB free. Official supabase/postgres:17.12.0.005 provides PG 17.12, Vault and seeded Supabase roles according to official artifacts, making DB-only container the preferred candidate; one Vault table-data entry is in the archive (no values read), so decryptability needs secure source root-key continuity. Actual role export/restore behavior remains untested until runtime is available. No production mutation.",
+      "tests": [{"command": "psql read-only TLS identity/version query", "result": "passed: postgres/postgres, PostgreSQL 17.12; password not read or printed"}, {"command": "pg_restore --list and independent file verification", "result": "passed: 667 TOC entries; archive 463215 bytes SHA256 B69CB2442DE66ECC140EF5B57F3E3E31A9BCD58A4F74D066AAE5584C9E922056; roles 5900 bytes SHA256 F3909FC5A0ED8E5FDEE352F3AF0551F5F3ACF401247284AE39EA6050177805BA"}, {"command": "isolated PostgreSQL 17.12 restore", "result": "blocked: platform role grant semantics and missing supabase_vault; full restored-object/count verification did not pass"}],
+      "artifacts": ["C:\\Users\\Mukesh Reddy\\AppData\\Local\\Localise\\Backups\\localise-tourism-pilot-20261126T081719Z\\localise-tourism-pilot-20261126T081719Z.pgdump", "C:\\Users\\Mukesh Reddy\\AppData\\Local\\Localise\\Backups\\localise-tourism-pilot-20261126T081719Z\\localise-tourism-pilot-20261126T081719Z.roles.sql", "C:\\Users\\Mukesh Reddy\\AppData\\Local\\Localise\\Backups\\localise-tourism-pilot-20261126T081719Z\\backup-manifest.json"],
+      "recovery": "Use an approved isolated Supabase-compatible runtime, restore there, verify schema/data/object counts and policies, then mark BACKUP READY. Never restore against production."
+    }
   ],
   "history": [
     {
