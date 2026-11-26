@@ -42,6 +42,9 @@ test("document exposes accessible landmark navigation and mobile layout", async 
   ]);
   assert.match(html, /href="#main-content"/);
   assert.match(html, /<main id="main-content"/);
+  assert.match(html, /OpenStreetMap-derived public data &copy; OpenStreetMap contributors/);
+  assert.match(html, /href="https:\/\/www\.openstreetmap\.org\/copyright"[^>]*>Open Database License \(ODbL\) 1\.0<\/a>/);
+  assert.match(html, /class="source-attribution"/);
   assert.match(html, /role="status"/);
   assert.match(html, /<nav class="bottom-nav" aria-label="Main navigation"/);
   assert.match(app, /id="city-grid" aria-live="polite"/);
