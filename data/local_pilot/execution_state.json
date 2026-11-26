@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-11-26T17:11:58Z",
+  "updated_at": "2026-11-26T17:39:06Z",
   "active_task_id": "hyderabad_public_content_release",
   "session_status": "RUNNING",
   "next_phase": {
@@ -357,7 +357,7 @@
       "dependencies": [],
       "recovery": "Commit the tested Worker and Localise changes on their pilot branches; let hosted CI build/deploy and health-check. Then verify live paginated API counts and run Edge mobile/desktop checks. Keep 19 identity-conflict attractions and all unverified routes private.",
       "status": "RUNNING",
-      "checkpoint": "Production publication used finalized SHA-256 7199012dd8a39f28547b6fcebbee4780543971cf4ab2aebe0e5c838bc06d5380 through the audited promotion RPC. 481 new browse-only records were added; current total is 485 (85 attractions, 200 food, 200 accommodation), route_ready=0. Heritage detail migration applied and 4 landmark cards have cited facts, licensed images, verified hours; 1 verified duration. Worker tests 38/38, typecheck, website tests 15/15 passed. New Worker and frontend changes await hosted pilot deployment."
+      "checkpoint": "Website and Worker are now deployed through hosted CI and active at 100%. Live CI: homepage 200, config 200, schema asset 404, city API 200; Worker API returned 1 city and 100 approved, attributed Hyderabad rows. Production catalog 485 browse-only rows (85 attractions, 200 food, 200 stays), zero escapes or route-ready rows. Worker 38/38 tests plus typecheck; website 17/17 tests; local Edge mobile/desktop UI smoke passed with nine real rows behind local adapter. Direct live browser access is sandbox-blocked; login and social render only, not authenticated. Continue validating remaining source data privately; withhold 19 identity collisions and unreviewed broad data."
     }
   ],
   "history": [
