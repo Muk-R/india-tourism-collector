@@ -4,7 +4,7 @@
   "active_task_id": "production_logical_backup",
   "session_status": "BLOCKED_PERMISSION",
   "next_phase": {
-    "session_a": "Blocked on valid PostgreSQL connection credential; no dump or restore performed.",
+    "session_a": "Session pooler hostname was supplied; server rejected PostgreSQL password authentication. No dump or restore performed.",
     "session_b": "Plan optimized shared regional extraction for the first 10 cities; reuse the verified bounded-memory pipeline and do not duplicate the Southern India download."
   },
   "tasks": [
@@ -164,11 +164,11 @@
       {
         "id": "production_logical_backup",
         "status": "BLOCKED_PERMISSION",
-        "dependencies": ["Valid PostgreSQL password available as protected process-scoped PGPASSWORD"],
-        "checkpoint": "Elevated psql reached the authorized project host; PostgreSQL rejected authentication for role postgres. No backup files or restore test created.",
-        "tests": [{"command": "psql read-only TLS identity/version query", "result": "server returned password authentication failed; no credential value read or printed"}],
+        "dependencies": ["Correct PostgreSQL database password in process-scoped PGPASSWORD"],
+        "checkpoint": "TLS connection to supplied session pooler host was attempted with specified username; PostgreSQL returned FATAL: password authentication failed for user postgres. No backup or restore test created.",
+        "tests": [{"command": "psql read-only TLS identity/version query", "result": "server returned FATAL: password authentication failed for user postgres; PGPASSWORD value not read or printed"}],
         "artifacts": ["private off-Git backup directory exists; empty"],
-        "recovery": "Verify the process-scoped PGPASSWORD is the PostgreSQL database password, not a Supabase API key; retry the read-only connection check before dumping."
+        "recovery": "Verify process-scoped PGPASSWORD is the correct PostgreSQL database password; do not reset or send it in chat. Retry the same read-only TLS connection."
       }
   ],
   "history": [
@@ -251,6 +251,12 @@
       "state": "BLOCKED_PERMISSION",
       "evidence": "PostgreSQL rejected authentication for postgres; no dump or restore. Production unchanged.",
       "recovery": "Supply valid process-scoped PostgreSQL password and retry read-only identity query."
+    },    {
+      "at": "2026-11-26T04:00:00Z",
+      "event": "Session pooler retry requested but dashboard hostname was not included.",
+      "state": "BLOCKED_DEPENDENCY",
+      "evidence": "Official Supabase docs state pooler host index cannot be derived from region; repository has no project pooler hostname. No pooler request sent.",
+      "recovery": "Provide the exact dashboard-provided pooler hostname, then retry read-only TLS identity/version query."
     }
   ],
   "policy": {
