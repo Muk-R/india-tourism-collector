@@ -453,11 +453,28 @@ components:
         description_license: { type: [string, 'null'] }
         wikipedia_url: { type: [string, 'null'], format: uri }
         image_url: { type: [string, 'null'], format: uri }
+        image_source_url: { type: [string, 'null'], format: uri }
         image_author: { type: [string, 'null'] }
         image_license: { type: [string, 'null'] }
+        historical_points:
+          type: array
+          maxItems: 5
+          items:
+            type: object
+            required: [text, source_url]
+            properties:
+              text: { type: string, maxLength: 600 }
+              source_url: { type: string, format: uri }
+        visiting_info:
+          type: object
+          description: Source-backed schedule and admission details; unknown or incomplete facts are omitted.
+        visit_duration_minutes: { type: [integer, 'null'], minimum: 1, maximum: 1440 }
+        visit_duration_verified: { type: boolean }
+        visit_duration_source_url: { type: [string, 'null'], format: uri }
         importance_score: { type: [number, 'null'] }
         quality_score: { type: [number, 'null'] }
         review_status: { type: string, enum: [pending, approved, rejected] }
+        route_ready: { type: boolean, description: True only when the navigation entrance is independently verified. }
         sources:
           type: array
           items: { $ref: '#/components/schemas/SourceAttribution' }

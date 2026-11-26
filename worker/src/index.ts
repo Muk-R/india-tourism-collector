@@ -1150,7 +1150,7 @@ export default {
       try {
         rows = await db(
           env,
-          `tourism_city_places?select=distance_km,relevance_score,place:tourism_places!inner(id,canonical_name,category,subcategory,latitude,longitude,address,description,description_source,description_license,website_url,phone,wikipedia_url,image_url,image_author,image_license,importance_score,quality_score,review_status,route_ready,sources:tourism_place_sources(source_name,source_id,source_url,attribution,license,payload))&city_id=eq.${encode(cityId)}&is_current=eq.true&place.review_status=eq.approved&place.is_active=eq.true&order=place(importance_score).desc,relevance_score.desc&limit=${limit}&offset=${offset}`,
+          `tourism_city_places?select=distance_km,relevance_score,place:tourism_places!inner(id,canonical_name,category,subcategory,latitude,longitude,address,description,description_source,description_license,website_url,phone,wikipedia_url,image_url,image_source_url,image_author,image_license,historical_points,visiting_info,visit_duration_minutes,visit_duration_verified,visit_duration_source_url,importance_score,quality_score,review_status,route_ready,sources:tourism_place_sources(source_name,source_id,source_url,attribution,license,payload))&city_id=eq.${encode(cityId)}&is_current=eq.true&place.review_status=eq.approved&place.is_active=eq.true&order=place(importance_score).desc,relevance_score.desc&limit=${limit}&offset=${offset}`,
         );
       } catch {
         return json({ error: "Tourism places service unavailable." }, 502);
@@ -1165,8 +1165,36 @@ export default {
         );
         const areaClass = areaClasses.size === 1 ? [...areaClasses][0] : undefined;
         const publicSources = sources.map(({ payload: _payload, ...source }: any) => source);
-        const publicPlace = { ...place, route_ready: place.route_ready === true, sources: publicSources };
-        if (!publicPlace.image_author || !publicPlace.image_license) delete publicPlace.image_url;
+        const isHttpsUrl = (value: unknown) => {
+          if (typeof value !== "string") return false;
+          try { return new URL(value).protocol === "https:"; } catch { return false; }
+        };
+        const historicalPoints = (Array.isArray(place.historical_points) ? place.historical_points : [])
+          .filter((point: any) => typeof point?.text === "string" && point.text.trim().length > 0 && point.text.length <= 600 && isHttpsUrl(point.source_url))
+          .slice(0, 5)
+          .map((point: any) => ({ text: point.text, source_url: point.source_url }));
+        const visitingInfo = place.visiting_info && typeof place.visiting_info === "object" && !Array.isArray(place.visiting_info)
+          && place.visiting_info.verified === true && isHttpsUrl(place.visiting_info.source_url)
+          ? place.visiting_info
+          : {};
+        const durationVerified = place.visit_duration_verified === true && Number.isInteger(place.visit_duration_minutes)
+          && place.visit_duration_minutes > 0 && place.visit_duration_minutes <= 1440 && isHttpsUrl(place.visit_duration_source_url);
+        const publicPlace = {
+          ...place,
+          historical_points: historicalPoints,
+          visiting_info: visitingInfo,
+          visit_duration_verified: durationVerified,
+          route_ready: place.route_ready === true,
+          sources: publicSources,
+        };
+        if (!publicPlace.image_author || !publicPlace.image_license || !isHttpsUrl(publicPlace.image_source_url) || !isHttpsUrl(publicPlace.image_url)) {
+          delete publicPlace.image_url;
+          delete publicPlace.image_source_url;
+        }
+        if (!durationVerified) {
+          publicPlace.visit_duration_minutes = null;
+          publicPlace.visit_duration_source_url = null;
+        }
         return { ...row, ...(areaClass ? { area_class: areaClass } : {}), place: publicPlace };
       });
       return json(publicRows);

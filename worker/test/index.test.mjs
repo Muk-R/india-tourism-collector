@@ -490,6 +490,14 @@ test("public places preserve browse-only route readiness and remove raw source p
   const place = {
     id: "88888888-8888-4888-8888-888888888888", canonical_name: "Charminar", review_status: "approved",
     is_active: true, route_ready: false, latitude: 17.3616, longitude: 78.4747,
+    historical_points: [
+      { text: "Built under Muhammad Quli Qutb Shah.", source_url: "https://hyderabad.telangana.gov.in/tourist-place/charminar/" },
+      { text: "Unsafe source must be omitted.", source_url: "javascript:alert(1)" },
+    ],
+    visiting_info: { verified: true, source_url: "https://culture.gov.in/files/inline-documents/TheAncientMonumentsandArchaeologicalSitesandRemainsRules1959_20.03.2018.pdf" },
+    image_url: "https://commons.wikimedia.org/wiki/Special:FilePath/Charminar_at_Hyderabad_Telangana_India.jpg",
+    image_source_url: "https://commons.wikimedia.org/wiki/File:Charminar_at_Hyderabad_Telangana_India.jpg",
+    image_author: "Kavali Chandrakanth KCK", image_license: "CC BY-SA 4.0",
     sources: [{ source_name: "openstreetmap", source_id: "way/1", source_url: "https://www.openstreetmap.org/way/1", attribution: "© OpenStreetMap contributors", license: "ODbL-1.0", payload: { private_stage: true } }],
   };
   const legacyPlace = { ...place, id: "99999999-9999-4999-8999-999999999999", canonical_name: "Golconda Fort" };
@@ -507,8 +515,14 @@ test("public places preserve browse-only route readiness and remove raw source p
     assert.deepEqual(rows.map((row) => row.place.route_ready), [false, false]);
     assert.equal(rows[0].place.sources[0].license, "ODbL-1.0");
     assert.equal(Object.hasOwn(rows[0].place.sources[0], "payload"), false);
+    assert.deepEqual(rows[0].place.historical_points, [place.historical_points[0]]);
+    assert.deepEqual(rows[0].place.visiting_info, place.visiting_info);
+    assert.equal(rows[0].place.image_source_url, place.image_source_url);
     const query = harness.calls.find((call) => call.path === "tourism_city_places").query.get("select");
     assert.match(query, /route_ready/);
+    assert.match(query, /historical_points/);
+    assert.match(query, /visiting_info/);
+    assert.match(query, /image_source_url/);
   } finally {
     globalThis.fetch = originalFetch;
   }
