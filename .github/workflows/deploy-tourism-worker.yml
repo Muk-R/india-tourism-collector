@@ -100,6 +100,9 @@ jobs:
           fi
           for migration in "${migration_order[@]}"; do
             if [[ ! -f "$migration" ]]; then echo "Missing reviewed migration: $migration" >&2; exit 1; fi
+            if [[ "$migration" == 'supabase/migrations/20261126164621_heritage_card_content_20261126.sql' ]]; then
+              psql -v ON_ERROR_STOP=1 -f supabase/tests/heritage_content_fixtures.sql
+            fi
             echo "Applying isolated migration: $migration"
             psql -v ON_ERROR_STOP=1 -f "$migration"
           done
