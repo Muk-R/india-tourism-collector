@@ -122,6 +122,12 @@ function responseJson(value, status = 200) {
   });
 }
 
+function capturedDiagnosticStages(logs) {
+  return logs
+    .filter(([event]) => event === "tourism_db_stage")
+    .map(([, payload]) => typeof payload === "string" ? JSON.parse(payload) : payload);
+}
+
 function collectionHarness(options = {}) {
   const calls = [];
   const city = {
@@ -509,12 +515,12 @@ test("public cities report only sanitized upstream failure diagnostics", async (
     assert.equal(response.status, 502);
     assert.deepEqual(await response.json(), { error: "Tourism data service unavailable." });
     assert.deepEqual(diagnostics, [["public_cities_upstream_failure", { kind: "postgrest_http", status: 400, code: "PGRST204" }]]);
-    const upstream = stages.find(([event, detail]) => event === "tourism_db_stage" && detail.stage === "upstream_response");
-    assert.deepEqual(upstream[1], {
-      request_id: upstream[1].request_id, operation: "public_cities", stage: "upstream_response",
+    const upstream = capturedDiagnosticStages(stages).find((detail) => detail.stage === "upstream_response");
+    assert.deepEqual(upstream, {
+      request_id: upstream.request_id, operation: "public_cities", stage: "upstream_response",
       status: 400, category: "http_error", code: "PGRST204",
     });
-    assert.equal(upstream[1].request_id.length > 0, true);
+    assert.equal(upstream.request_id.length > 0, true);
     assert.doesNotMatch(JSON.stringify([...diagnostics, ...stages]), /private schema detail|mock-secret-key/);
   } finally {
     globalThis.fetch = originalFetch;
@@ -544,7 +550,7 @@ test("diagnostic candidate logs safe connection stages and verifies the expected
       DB_DIAGNOSTICS: "true",
     });
     assert.equal(response.status, 200);
-    const stages = logs.filter(([event]) => event === "tourism_db_stage").map(([, detail]) => detail);
+    const stages = capturedDiagnosticStages(logs);
     assert.deepEqual(stages.map(({ stage }) => stage), ["bindings", "url_validation", "credential_format", "fetch_start", "upstream_response"]);
     assert.equal(stages[0].supabase_secret_key_present, true);
     assert.equal(stages[1].project_match, true);
@@ -576,7 +582,7 @@ test("diagnostic candidate blocks a mismatched project before outbound fetch", a
     });
     assert.equal(response.status, 502);
     assert.equal(fetched, false);
-    const stages = logs.filter(([event]) => event === "tourism_db_stage").map(([, detail]) => detail);
+    const stages = capturedDiagnosticStages(logs);
     assert.equal(stages.find(({ stage }) => stage === "url_validation").project_match, false);
     assert.equal(stages.find(({ stage }) => stage === "configuration_failure").category, "project_mismatch");
     assert.ok(!stages.some(({ stage }) => stage === "fetch_start"));
@@ -601,8 +607,8 @@ test("diagnostic candidate classifies network exceptions without exposing error 
       DB_DIAGNOSTICS: "true",
     });
     assert.equal(response.status, 502);
-    const network = logs.find(([event, detail]) => event === "tourism_db_stage" && detail.stage === "fetch_exception");
-    assert.equal(network[1].category, "fetch_type_error");
+    const network = capturedDiagnosticStages(logs).find((detail) => detail.stage === "fetch_exception");
+    assert.equal(network.category, "fetch_type_error");
     assert.doesNotMatch(JSON.stringify(logs), /private host|sensitive-marker|supabase\.co/);
   } finally {
     globalThis.fetch = originalFetch;

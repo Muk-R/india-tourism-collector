@@ -167,7 +167,7 @@ type DbDiagnosticContext = { requestId: string; operation: "public_cities" | "pu
 
 function emitDbDiagnostic(env: Env, context: DbDiagnosticContext | undefined, stage: string, details: Record<string, unknown> = {}) {
   if (env.DB_DIAGNOSTICS !== "true" || !context) return;
-  console.log("tourism_db_stage", { request_id: context.requestId, operation: context.operation, stage, ...details });
+  console.log("tourism_db_stage", JSON.stringify({ request_id: context.requestId, operation: context.operation, stage, ...details }));
 }
 
 function diagnosticRequestId(request: Request): string {
