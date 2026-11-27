@@ -18,6 +18,8 @@ import { classifyTourismPlace } from './tourism-data/taxonomy.ts';
 interface Env {
   SUPABASE_URL: string;
   SUPABASE_SECRET_KEY: string;
+  SUPABASE_PROJECT_REF?: string;
+  DB_DIAGNOSTICS?: string;
   ALLOW_LOCAL_HTTP?: string;
   ADMIN_TOKEN: string;
   ADMIN_ACTOR_ID?: string;
@@ -161,12 +163,61 @@ export async function fetchWithRetry(
 }
 
 
-async function db(env: Env, path: string, init: RequestInit = {}) {
-  const supabaseUrl = new URL(env.SUPABASE_URL);
+type DbDiagnosticContext = { requestId: string; operation: "public_cities" | "public_places" };
+
+function emitDbDiagnostic(env: Env, context: DbDiagnosticContext | undefined, stage: string, details: Record<string, unknown> = {}) {
+  if (env.DB_DIAGNOSTICS !== "true" || !context) return;
+  console.log("tourism_db_stage", { request_id: context.requestId, operation: context.operation, stage, ...details });
+}
+
+function diagnosticRequestId(request: Request): string {
+  const ray = request.headers.get("cf-ray") || "";
+  return /^[a-f0-9]{16}(?:-[A-Z]{3})?$/i.test(ray) ? ray : crypto.randomUUID();
+}
+
+function credentialFormat(value: unknown) {
+  if (typeof value !== "string" || !value) return { kind: "missing", format_valid: false };
+  if (value.startsWith("sb_secret_")) {
+    return { kind: "sb_secret", format_valid: /^sb_secret_[A-Za-z0-9_-]{22}_[A-Za-z0-9_-]{8}$/.test(value) };
+  }
+  if (/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(value)) {
+    return { kind: "legacy_jwt", format_valid: true };
+  }
+  return { kind: "other", format_valid: false };
+}
+
+function networkExceptionCategory(error: unknown): string {
+  if (!(error instanceof Error)) return "unknown_exception";
+  if (error.name === "TimeoutError" || error.name === "AbortError") return "timeout";
+  const cause = (error as Error & { cause?: unknown }).cause;
+  const code = cause && typeof cause === "object" && "code" in cause ? (cause as { code?: unknown }).code : undefined;
+  if (code === "ENOTFOUND" || code === "EAI_AGAIN") return "dns";
+  if (code === "ECONNREFUSED" || code === "ECONNRESET" || code === "ETIMEDOUT") return "connection";
+  if (code === "CERT_HAS_EXPIRED" || code === "UNABLE_TO_VERIFY_LEAF_SIGNATURE") return "tls";
+  if (error instanceof TypeError) return "fetch_type_error";
+  return "network_exception";
+}
+
+async function db(env: Env, path: string, init: RequestInit = {}, diagnostic?: DbDiagnosticContext) {
+  const hasUrl = typeof env.SUPABASE_URL === "string" && env.SUPABASE_URL.length > 0;
+  const hasCredential = typeof env.SUPABASE_SECRET_KEY === "string" && env.SUPABASE_SECRET_KEY.length > 0;
+  emitDbDiagnostic(env, diagnostic, "bindings", { supabase_url_present: hasUrl, supabase_secret_key_present: hasCredential });
+  if (!hasUrl || !hasCredential) {
+    emitDbDiagnostic(env, diagnostic, "configuration_failure", { category: "required_binding_missing" });
+    throw new Error("Required Supabase binding is missing.");
+  }
+
+  let supabaseUrl: URL;
+  try {
+    supabaseUrl = new URL(env.SUPABASE_URL);
+  } catch {
+    emitDbDiagnostic(env, diagnostic, "url_validation", { valid: false, category: "invalid_url" });
+    throw new Error("Supabase URL is invalid.");
+  }
   const localLoopbackHttp = env.ALLOW_LOCAL_HTTP === "true" && supabaseUrl.protocol === "http:" &&
     (supabaseUrl.hostname === "127.0.0.1" || supabaseUrl.hostname === "localhost");
 
-  if (
+  const validUrl = !(
     (supabaseUrl.protocol !== "https:" && !localLoopbackHttp) ||
     !supabaseUrl.hostname ||
     supabaseUrl.username ||
@@ -174,10 +225,25 @@ async function db(env: Env, path: string, init: RequestInit = {}) {
     supabaseUrl.pathname !== "/" ||
     supabaseUrl.search ||
     supabaseUrl.hash
-  ) {
+  );
+  const expectedProject = env.SUPABASE_PROJECT_REF;
+  const projectRefValid = !expectedProject || /^[a-z0-9]{20}$/i.test(expectedProject);
+  const projectMatch = expectedProject && projectRefValid
+    ? supabaseUrl.hostname.toLowerCase() === `${expectedProject.toLowerCase()}.supabase.co`
+    : null;
+  emitDbDiagnostic(env, diagnostic, "url_validation", {
+    valid: validUrl,
+    project_match: projectMatch,
+    expected_project_ref_configured: Boolean(expectedProject),
+  });
+  if (!validUrl || !projectRefValid || projectMatch === false) {
+    const category = !validUrl ? "invalid_url" : !projectRefValid ? "invalid_expected_project_ref" : "project_mismatch";
+    emitDbDiagnostic(env, diagnostic, "configuration_failure", { category });
     throw new Error("SUPABASE_URL must be an HTTPS origin without credentials or URL parameters.");
   }
 
+  const format = credentialFormat(env.SUPABASE_SECRET_KEY);
+  emitDbDiagnostic(env, diagnostic, "credential_format", format);
   const headers = new Headers(init.headers);
 
   headers.set("apikey", env.SUPABASE_SECRET_KEY);
@@ -188,12 +254,19 @@ async function db(env: Env, path: string, init: RequestInit = {}) {
   if (!env.SUPABASE_SECRET_KEY.startsWith("sb_secret_")) {
     headers.set("Authorization", `Bearer ${env.SUPABASE_SECRET_KEY}`);
   }
-  const response = await fetch(`${env.SUPABASE_URL}/rest/v1/${path}`, {
-    ...init,
-    headers,
-    redirect: "manual",
-    signal: AbortSignal.timeout(15_000),
-  });
+  emitDbDiagnostic(env, diagnostic, "fetch_start", { upstream: "supabase_rest", method: init.method || "GET" });
+  let response: Response;
+  try {
+    response = await fetch(`${env.SUPABASE_URL}/rest/v1/${path}`, {
+      ...init,
+      headers,
+      redirect: "manual",
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch (error) {
+    emitDbDiagnostic(env, diagnostic, "fetch_exception", { category: networkExceptionCategory(error) });
+    throw error;
+  }
 
   if (!response.ok) {
     const responseBody = (await response.text()).slice(0, 400);
@@ -202,14 +275,25 @@ async function db(env: Env, path: string, init: RequestInit = {}) {
       const parsed = JSON.parse(responseBody);
       if (typeof parsed?.code === "string" && /^[A-Z0-9]{4,16}$/.test(parsed.code)) upstreamCode = parsed.code;
     } catch { /* Keep the upstream response body out of diagnostics. */ }
+    emitDbDiagnostic(env, diagnostic, "upstream_response", {
+      status: response.status,
+      category: "http_error",
+      ...(upstreamCode ? { code: upstreamCode } : {}),
+    });
     const error = new Error(`Supabase ${response.status}: ${responseBody}`) as Error & { upstreamStatus: number; upstreamCode?: string };
     error.upstreamStatus = response.status;
     error.upstreamCode = upstreamCode;
     throw error;
   }
+  emitDbDiagnostic(env, diagnostic, "upstream_response", { status: response.status, category: "success" });
   if (response.status === 204) return null;
   const body = await response.text();
-  return body ? JSON.parse(body) : null;
+  try {
+    return body ? JSON.parse(body) : null;
+  } catch (error) {
+    emitDbDiagnostic(env, diagnostic, "response_parse_failure", { category: "invalid_json" });
+    throw error;
+  }
 }
 
 function safeDatabaseDiagnostic(error: unknown) {
@@ -1155,14 +1239,18 @@ export default {
     if (url.pathname === "/health") return json({ ok: true, service: "india-tourism-collector" });
 
     if (url.pathname === "/public/cities" && request.method === "GET") {
+      const diagnostic = { requestId: diagnosticRequestId(request), operation: "public_cities" as const };
       try {
         return json(
           await db(
             env,
             "tourism_cities?select=id,name,state_name,latitude,longitude,radius_km&is_enabled=eq.true&order=name.asc",
+            {},
+            diagnostic,
           ),
         );
       } catch (error) {
+        emitDbDiagnostic(env, diagnostic, "request_failure", safeDatabaseDiagnostic(error));
         console.error("public_cities_upstream_failure", safeDatabaseDiagnostic(error));
         return json({ error: "Tourism data service unavailable." }, 502);
       }
@@ -1182,12 +1270,16 @@ export default {
       }
       const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(100, requestedLimit)) : 100;
       let rows: unknown;
+      const diagnostic = { requestId: diagnosticRequestId(request), operation: "public_places" as const };
       try {
         rows = await db(
           env,
           `tourism_city_places?select=distance_km,relevance_score,place:tourism_places!inner(id,canonical_name,category,subcategory,latitude,longitude,address,description,description_source,description_license,website_url,phone,wikipedia_url,image_url,image_source_url,image_author,image_license,historical_points,visiting_info,visit_duration_minutes,visit_duration_verified,visit_duration_source_url,importance_score,quality_score,review_status,route_ready,sources:tourism_place_sources(source_name,source_id,source_url,attribution,license,payload))&city_id=eq.${encode(cityId)}&is_current=eq.true&place.review_status=eq.approved&place.is_active=eq.true&order=place(importance_score).desc,relevance_score.desc&limit=${limit}&offset=${offset}`,
+          {},
+          diagnostic,
         );
       } catch (error) {
+        emitDbDiagnostic(env, diagnostic, "request_failure", safeDatabaseDiagnostic(error));
         console.error("public_places_upstream_failure", safeDatabaseDiagnostic(error));
         return json({ error: "Tourism places service unavailable." }, 502);
       }
