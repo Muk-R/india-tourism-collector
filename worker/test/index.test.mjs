@@ -122,6 +122,12 @@ function responseJson(value, status = 200) {
   });
 }
 
+function capturedDiagnosticStages(logs) {
+  return logs
+    .filter(([event]) => event === "tourism_db_stage")
+    .map(([, payload]) => typeof payload === "string" ? JSON.parse(payload) : payload);
+}
+
 function collectionHarness(options = {}) {
   const calls = [];
   const city = {
@@ -491,24 +497,122 @@ test("public places and admin review exclude retired city-place links", async ()
 test("public cities report only sanitized upstream failure diagnostics", async () => {
   const originalFetch = globalThis.fetch;
   const originalConsoleError = console.error;
+  const originalConsoleLog = console.log;
   const diagnostics = [];
+  const stages = [];
   globalThis.fetch = async () => new Response(JSON.stringify({
     code: "PGRST204",
     message: "private schema detail that must not be logged",
   }), { status: 400, headers: { "Content-Type": "application/json" } });
   console.error = (...args) => diagnostics.push(args);
+  console.log = (...args) => stages.push(args);
   try {
     const response = await worker.fetch(new Request("https://collector.test/public/cities"), {
       SUPABASE_URL: "https://supabase.test",
       SUPABASE_SECRET_KEY: "mock-secret-key",
+      DB_DIAGNOSTICS: "true",
     });
     assert.equal(response.status, 502);
     assert.deepEqual(await response.json(), { error: "Tourism data service unavailable." });
     assert.deepEqual(diagnostics, [["public_cities_upstream_failure", { kind: "postgrest_http", status: 400, code: "PGRST204" }]]);
-    assert.doesNotMatch(JSON.stringify(diagnostics), /private schema detail|mock-secret-key/);
+    const upstream = capturedDiagnosticStages(stages).find((detail) => detail.stage === "upstream_response");
+    assert.deepEqual(upstream, {
+      request_id: upstream.request_id, operation: "public_cities", stage: "upstream_response",
+      status: 400, category: "http_error", code: "PGRST204",
+    });
+    assert.equal(upstream.request_id.length > 0, true);
+    assert.doesNotMatch(JSON.stringify([...diagnostics, ...stages]), /private schema detail|mock-secret-key/);
   } finally {
     globalThis.fetch = originalFetch;
     console.error = originalConsoleError;
+    console.log = originalConsoleLog;
+  }
+});
+
+test("diagnostic candidate logs safe connection stages and verifies the expected Supabase project", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalConsoleLog = console.log;
+  const logs = [];
+  const secretMarker = "sb_secret_test_placeholder";
+  globalThis.fetch = async (input, init) => {
+    assert.equal(new URL(input).hostname, "vsfbwesxskkveaevujnj.supabase.co");
+    assert.equal(new Headers(init.headers).get("apikey"), secretMarker);
+    return responseJson([{ id: TEST_CITY_ID, name: "Hyderabad" }]);
+  };
+  console.log = (...args) => logs.push(args);
+  try {
+    const response = await worker.fetch(new Request("https://collector.test/public/cities", {
+      headers: { "cf-ray": "a61076aff9e12e84-HYD" },
+    }), {
+      SUPABASE_URL: "https://vsfbwesxskkveaevujnj.supabase.co",
+      SUPABASE_PROJECT_REF: "vsfbwesxskkveaevujnj",
+      SUPABASE_SECRET_KEY: secretMarker,
+      DB_DIAGNOSTICS: "true",
+    });
+    assert.equal(response.status, 200);
+    const stages = capturedDiagnosticStages(logs);
+    assert.deepEqual(stages.map(({ stage }) => stage), ["bindings", "url_validation", "credential_format", "fetch_start", "upstream_response"]);
+    assert.equal(stages[0].supabase_secret_key_present, true);
+    assert.equal(stages[1].project_match, true);
+    assert.deepEqual(stages[2], {
+      request_id: "a61076aff9e12e84-HYD", operation: "public_cities", stage: "credential_format",
+      kind: "sb_secret", format_valid: false,
+    });
+    assert.equal(stages.at(-1).status, 200);
+    assert.doesNotMatch(JSON.stringify(logs), /private-test-value|vsfbwesxskkveaevujnj\.supabase\.co/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    console.log = originalConsoleLog;
+  }
+});
+
+test("diagnostic candidate blocks a mismatched project before outbound fetch", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalConsoleLog = console.log;
+  const logs = [];
+  let fetched = false;
+  globalThis.fetch = async () => { fetched = true; return responseJson([]); };
+  console.log = (...args) => logs.push(args);
+  try {
+    const response = await worker.fetch(new Request("https://collector.test/public/cities"), {
+      SUPABASE_URL: "https://wrong-project.supabase.co",
+      SUPABASE_PROJECT_REF: "vsfbwesxskkveaevujnj",
+      SUPABASE_SECRET_KEY: "sensitive-marker",
+      DB_DIAGNOSTICS: "true",
+    });
+    assert.equal(response.status, 502);
+    assert.equal(fetched, false);
+    const stages = capturedDiagnosticStages(logs);
+    assert.equal(stages.find(({ stage }) => stage === "url_validation").project_match, false);
+    assert.equal(stages.find(({ stage }) => stage === "configuration_failure").category, "project_mismatch");
+    assert.ok(!stages.some(({ stage }) => stage === "fetch_start"));
+    assert.doesNotMatch(JSON.stringify(logs), /sensitive-marker|wrong-project/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    console.log = originalConsoleLog;
+  }
+});
+
+test("diagnostic candidate classifies network exceptions without exposing error details", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalConsoleLog = console.log;
+  const logs = [];
+  globalThis.fetch = async () => { throw new TypeError("private host and key must not be logged"); };
+  console.log = (...args) => logs.push(args);
+  try {
+    const response = await worker.fetch(new Request("https://collector.test/public/cities"), {
+      SUPABASE_URL: "https://vsfbwesxskkveaevujnj.supabase.co",
+      SUPABASE_PROJECT_REF: "vsfbwesxskkveaevujnj",
+      SUPABASE_SECRET_KEY: "sensitive-marker",
+      DB_DIAGNOSTICS: "true",
+    });
+    assert.equal(response.status, 502);
+    const network = capturedDiagnosticStages(logs).find((detail) => detail.stage === "fetch_exception");
+    assert.equal(network.category, "fetch_type_error");
+    assert.doesNotMatch(JSON.stringify(logs), /private host|sensitive-marker|supabase\.co/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    console.log = originalConsoleLog;
   }
 });
 

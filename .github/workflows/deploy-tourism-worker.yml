@@ -189,7 +189,15 @@ jobs:
           NODE
 
   deploy:
-    if: github.ref == 'refs/heads/dev/session-a-hyderabad' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.recovery_release == true || needs.verify.result == 'success')))
+    if: >-
+      (github.ref == 'refs/heads/dev/session-a-hyderabad' &&
+        (github.event_name == 'push' ||
+          (github.event_name == 'workflow_dispatch' &&
+            ((inputs.recovery_release == true && !startsWith(inputs.recovery_reason, 'diagnostic-only:')) ||
+              (inputs.recovery_release != true && needs.verify.result == 'success'))))) ||
+      (github.ref == 'refs/heads/fix/worker-db-diagnostic-capture' &&
+        github.event_name == 'workflow_dispatch' && inputs.recovery_release == true &&
+        startsWith(inputs.recovery_reason, 'diagnostic-only:') && needs.verify.result == 'success')
     needs: verify
     runs-on: ubuntu-latest
     environment: hyderabad-pilot
@@ -199,6 +207,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Confirm separately authorized recovery request
+        id: recovery
         if: github.event_name == 'workflow_dispatch' && inputs.recovery_release == true
         env:
           RECOVERY_REASON: ${{ inputs.recovery_reason }}
@@ -206,6 +215,11 @@ jobs:
           if [[ -z "${RECOVERY_REASON//[[:space:]]/}" ]]; then
             echo 'Recovery dispatch requires a non-empty incident/change reference.' >&2
             exit 1
+          fi
+          if [[ "$RECOVERY_REASON" == diagnostic-only:* ]]; then
+            echo 'diagnostic_only=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'diagnostic_only=false' >> "$GITHUB_OUTPUT"
           fi
           echo 'Recovery mode selected; existing hyderabad-pilot environment approval remains required.'
       - uses: pnpm/action-setup@v4
@@ -217,13 +231,192 @@ jobs:
           cache: pnpm
           cache-dependency-path: worker/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
-      - name: Deploy to the existing tourism pilot Worker
-        run: pnpm exec wrangler deploy --keep-vars --var ADMIN_ACTOR_ID:localise-pilot-admin --message "GitHub Actions $GITHUB_SHA"
+      - name: Record the exact active deployment before diagnostic rollout
+        id: diagnostic_baseline
+        if: steps.recovery.outputs.diagnostic_only == 'true'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { appendFileSync, readFileSync } from 'node:fs';
+          const config = readFileSync('wrangler.toml', 'utf8');
+          const workerName = config.match(/^name\s*=\s*"([a-z0-9_-]+)"/m)?.[1];
+          const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+          const token = process.env.CLOUDFLARE_API_TOKEN;
+          if (!workerName || !accountId || !token) throw new Error('Worker baseline configuration is incomplete');
+          const endpoint = `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/scripts/${workerName}/deployments`;
+          const response = await fetch(endpoint, { headers: { Authorization: `Bearer ${token}` } });
+          if (!response.ok) throw new Error(`Could not read current Worker deployment metadata (HTTP ${response.status})`);
+          const body = await response.json();
+          if (body.success !== true || !Array.isArray(body.result?.deployments)) throw new Error('Cloudflare returned an invalid Worker deployment list');
+          const deployments = body.result.deployments.slice().sort((a, b) => Date.parse(b.created_on) - Date.parse(a.created_on));
+          const active = deployments[0];
+          if (!active || !Array.isArray(active.versions) || active.versions.length !== 1 || active.versions[0].percentage !== 100) {
+            throw new Error('Expected one active Worker version at 100%; refusing diagnostic rollout');
+          }
+          const versionId = active.versions[0].version_id;
+          if (!/^[0-9a-f-]{36}$/i.test(versionId || '')) throw new Error('Active Worker version ID is invalid');
+          appendFileSync(process.env.GITHUB_ENV, `ROLLBACK_VERSION_ID=${versionId}\nBASELINE_DEPLOYMENT_ID=${active.id}\n`);
+          appendFileSync(process.env.GITHUB_OUTPUT, `rollback_version_id=${versionId}\nbaseline_deployment_id=${active.id}\n`);
+          console.log('Captured exact active Worker version and 100% deployment before diagnostics.');
+          NODE
+      - name: Start diagnostic log capture before deployment
+        id: diagnostic_tail
+        if: steps.recovery.outputs.diagnostic_only == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          log_file="$RUNNER_TEMP/localise-worker-tail.jsonl"
+          pnpm exec wrangler tail --format pretty --search tourism_db_stage > "$log_file" 2>&1 &
+          tail_pid=$!
+          echo "TAIL_PID=$tail_pid" >> "$GITHUB_ENV"
+          echo "DIAGNOSTIC_LOG_FILE=$log_file" >> "$GITHUB_ENV"
+          for attempt in {1..30}; do
+            if ! kill -0 "$tail_pid" 2>/dev/null; then
+              echo 'Wrangler tail exited before the WebSocket connected; refusing diagnostic deployment.' >&2
+              exit 1
+            fi
+            if grep -Fq 'Connected to india-tourism-collector, waiting for logs...' "$log_file"; then
+              echo 'Wrangler tail WebSocket is connected before diagnostic deployment.'
+              exit 0
+            fi
+            sleep 1
+          done
+          echo 'Timed out waiting for Wrangler tail WebSocket connection; refusing diagnostic deployment.' >&2
+          exit 1
+      - name: Deploy to the existing tourism pilot Worker
+        id: deploy
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          DIAGNOSTIC_ONLY: ${{ steps.recovery.outputs.diagnostic_only }}
+        run: |
+          if [[ "$DIAGNOSTIC_ONLY" == "true" ]]; then
+            pnpm exec wrangler deploy --keep-vars \
+              --var ADMIN_ACTOR_ID:localise-pilot-admin \
+              --var DB_DIAGNOSTICS:true \
+              --var SUPABASE_PROJECT_REF:vsfbwesxskkveaevujnj \
+              --message "Temporary database diagnostics $GITHUB_SHA"
+          else
+            pnpm exec wrangler deploy --keep-vars --var ADMIN_ACTOR_ID:localise-pilot-admin --message "GitHub Actions $GITHUB_SHA"
+          fi
+      - name: Request public cities once and record response shape only
+        id: diagnostic_request
+        if: steps.recovery.outputs.diagnostic_only == 'true' && steps.deploy.outcome == 'success'
+        env:
+          API_ORIGIN: ${{ vars.TOURISM_API_ORIGIN }}
+        run: |
+          node --input-type=module <<'NODE'
+          const base = process.env.API_ORIGIN || 'https://india-tourism-collector.promoacc123123.workers.dev';
+          const response = await fetch(new URL('/public/cities', base), {
+            method: 'GET', cache: 'no-store', signal: AbortSignal.timeout(15000),
+          });
+          let body;
+          try { body = await response.json(); } catch { body = undefined; }
+          const shape = Array.isArray(body) ? 'array' : body && typeof body === 'object' ? 'object' : typeof body;
+          const rayId = response.headers.get('cf-ray') || '';
+          if (!/^[a-f0-9]{16}-[A-Z]{3}$/i.test(rayId)) throw new Error('Cloudflare request ID was unavailable; cannot correlate diagnostic logs');
+          const fs = await import('node:fs');
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `ray_id=${rayId}\n`);
+          console.log(JSON.stringify({ request: 'GET /public/cities', status: response.status, shape, ray_id: rayId }));
+          NODE
+      - name: Wait for the matching terminal database diagnostic event
+        id: wait_diagnostic_event
+        if: always() && steps.recovery.outputs.diagnostic_only == 'true' && steps.diagnostic_request.outcome == 'success'
+        env:
+          RAY_ID: ${{ steps.diagnostic_request.outputs.ray_id }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const logFile = process.env.DIAGNOSTIC_LOG_FILE;
+          const rayId = process.env.RAY_ID;
+          const terminalStages = new Set(['upstream_response','request_failure']);
+          const parseStage = (line) => {
+            const marker = line.indexOf('tourism_db_stage ');
+            if (marker < 0) return null;
+            try { return JSON.parse(line.slice(marker + 'tourism_db_stage '.length)); } catch { return null; }
+          };
+          for (let second = 0; second < 45; second++) {
+            const lines = readFileSync(logFile, 'utf8').split(/\r?\n/);
+            const matched = lines.some((line) => {
+              const stage = parseStage(line);
+              return stage?.request_id === rayId && terminalStages.has(stage.stage);
+            });
+            if (matched) {
+              console.log(`Received a terminal diagnostic event for the single request ${rayId}.`);
+              process.exit(0);
+            }
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+          }
+          throw new Error('No terminal database diagnostic event matching the request ID arrived within 45 seconds');
+          NODE
+      - name: Stop tail and print only sanitized database diagnostic fields
+        if: always() && steps.recovery.outputs.diagnostic_only == 'true'
+        env:
+          RAY_ID: ${{ steps.diagnostic_request.outputs.ray_id }}
+        run: |
+          if [[ -n "${TAIL_PID:-}" ]]; then kill "$TAIL_PID" 2>/dev/null || true; fi
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const path = process.env.DIAGNOSTIC_LOG_FILE;
+          const allowedStages = new Set(['bindings','url_validation','credential_format','fetch_start','fetch_exception','upstream_response','response_parse_failure','configuration_failure','request_failure']);
+          const safe = [];
+          for (const line of readFileSync(path, 'utf8').split(/\r?\n/)) {
+            const marker = line.indexOf('tourism_db_stage ');
+            if (marker < 0) continue;
+            let item;
+            try { item = JSON.parse(line.slice(marker + 'tourism_db_stage '.length)); } catch { continue; }
+            if (item.request_id !== process.env.RAY_ID || !allowedStages.has(item.stage)) continue;
+            const row = { request_id: item.request_id, operation: ['public_cities','public_places'].includes(item.operation) ? item.operation : null, stage: item.stage };
+            for (const key of ['supabase_url_present','supabase_secret_key_present','valid','project_match','expected_project_ref_configured','format_valid']) if (typeof item[key] === 'boolean') row[key] = item[key];
+            if (item.stage === 'credential_format' && typeof item.kind === 'string' && ['sb_secret','legacy_jwt','other','missing'].includes(item.kind)) row.kind = item.kind;
+            if (item.stage === 'fetch_start' && typeof item.method === 'string' && ['GET','POST','PUT','PATCH','DELETE'].includes(item.method)) row.method = item.method;
+            if (item.stage === 'fetch_start' && item.upstream === 'supabase_rest') row.upstream = item.upstream;
+            if (typeof item.category === 'string' && ['success','http_error','timeout','dns','connection','tls','fetch_type_error','network_exception','unknown_exception','invalid_url','invalid_expected_project_ref','project_mismatch','required_binding_missing','invalid_json'].includes(item.category)) row.category = item.category;
+            if (Number.isInteger(item.status) && item.status >= 100 && item.status <= 599) row.status = item.status;
+            if (typeof item.code === 'string' && /^[A-Z0-9]{4,16}$/.test(item.code)) row.code = item.code;
+            safe.push(row);
+          }
+          if (!safe.length) console.log('No structured database diagnostic stage events were captured.');
+          else for (const row of safe) console.log(JSON.stringify(row));
+          NODE
+      - name: Roll back temporary diagnostic deployment
+        id: diagnostic_rollback
+        if: always() && steps.recovery.outputs.diagnostic_only == 'true' && steps.deploy.outcome != 'skipped' && steps.diagnostic_baseline.outputs.rollback_version_id != ''
+        run: pnpm exec wrangler rollback "$ROLLBACK_VERSION_ID" --message "Restore exact pre-diagnostic Worker version"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      - name: Verify exact diagnostic rollback restoration
+        if: always() && steps.recovery.outputs.diagnostic_only == 'true' && steps.diagnostic_rollback.outcome == 'success'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          EXPECTED_VERSION_ID: ${{ env.ROLLBACK_VERSION_ID }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const workerName = readFileSync('wrangler.toml', 'utf8').match(/^name\s*=\s*"([a-z0-9_-]+)"/m)?.[1];
+          const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+          const token = process.env.CLOUDFLARE_API_TOKEN;
+          if (!workerName || !accountId || !token || !process.env.EXPECTED_VERSION_ID) throw new Error('Rollback verification configuration is incomplete');
+          const endpoint = `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/scripts/${workerName}/deployments`;
+          const response = await fetch(endpoint, { headers: { Authorization: `Bearer ${token}` } });
+          if (!response.ok) throw new Error(`Could not verify Worker restoration (HTTP ${response.status})`);
+          const body = await response.json();
+          if (body.success !== true || !Array.isArray(body.result?.deployments)) throw new Error('Cloudflare returned an invalid Worker deployment list during restoration verification');
+          const active = body.result.deployments.slice().sort((a, b) => Date.parse(b.created_on) - Date.parse(a.created_on))[0];
+          if (!active || active.versions?.length !== 1 || active.versions[0].version_id !== process.env.EXPECTED_VERSION_ID || active.versions[0].percentage !== 100) {
+            throw new Error('Active Worker deployment does not match the exact pre-diagnostic version at 100%');
+          }
+          console.log('Exact pre-diagnostic Worker version is restored at 100% traffic.');
+          NODE
       - name: Verify live Worker API
         id: health
+        if: steps.recovery.outputs.diagnostic_only != 'true'
         env:
           API_ORIGIN: ${{ vars.TOURISM_API_ORIGIN }}
         run: |
@@ -266,7 +459,7 @@ jobs:
           console.log(`Worker health passed; cities=${cities.length}; Hyderabad public rows=${places.length}; categories=${categories.size}`);
           NODE
       - name: Roll back failed deployment
-        if: failure() && steps.health.outcome == 'failure'
+        if: failure() && steps.recovery.outputs.diagnostic_only != 'true' && steps.health.outcome == 'failure'
         run: pnpm exec wrangler rollback --message "Automatic rollback after failed pilot health check"
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
