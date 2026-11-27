@@ -13,6 +13,7 @@ import {
 } from './tourism-data/catalog.ts';
 import { mapPbfStageRecord, type PbfStageRecord } from './pbf-stage-contract.ts';
 import { validatePromotionRequest, validatePublicationRollback } from './offline-publication.ts';
+import { classifyTourismPlace } from './tourism-data/taxonomy.ts';
 
 interface Env {
   SUPABASE_URL: string;
@@ -318,6 +319,13 @@ async function savePlace(
   place.quality_score = score(place);
   const importance = scoreImportance(item.source_name, item.raw_payload);
   place.importance_score = importance.score;
+  const taxonomy = item.source_name === 'openstreetmap'
+    ? classifyTourismPlace({
+        place,
+        tags: item.raw_payload?.tags || {},
+        evidence: place.wikidata_id ? { wikidataId: place.wikidata_id } : {},
+      })
+    : null;
 
   const sourceUrl = item.source_name === 'openstreetmap'
     ? `https://www.openstreetmap.org/${item.source_id}`
@@ -328,7 +336,9 @@ async function savePlace(
     source_url: sourceUrl,
     attribution: item.source_name === 'openstreetmap' ? '© OpenStreetMap contributors' : 'Wikidata contributors',
     license: item.source_name === 'openstreetmap' ? 'ODbL' : 'CC0',
-    payload: item.raw_payload,
+    payload: taxonomy
+      ? { ...item.raw_payload, localise_taxonomy: taxonomy }
+      : item.raw_payload,
   };
   const wikipediaSource = wiki
     ? {
@@ -1164,6 +1174,33 @@ export default {
             .filter((value: unknown) => value === "core_hyderabad" || value === "nearby_escape_candidate"),
         );
         const areaClass = areaClasses.size === 1 ? [...areaClasses][0] : undefined;
+        const taxonomyRecords = sources.flatMap((source: any) => {
+          const savedTaxonomy = source?.payload?.localise_taxonomy;
+          if (savedTaxonomy && Array.isArray(savedTaxonomy.categories)) return [savedTaxonomy];
+          const tags = source?.payload?.tags;
+          if (source?.source_name === 'openstreetmap' && tags && typeof tags === 'object' && !Array.isArray(tags)) {
+            return [classifyTourismPlace({ place, tags, evidence: place.wikidata_id ? { wikidataId: place.wikidata_id } : {} })];
+          }
+          return [];
+        });
+        const categoriesFromSources: string[] = taxonomyRecords.flatMap((value: any) =>
+          Array.isArray(value.categories) ? value.categories.filter((category: unknown): category is string => typeof category === 'string') : [],
+        );
+        const taxonomyCategories = [...new Set<string>(categoriesFromSources)];
+        const escapeClassification = classifyTourismPlace({
+          place,
+          baseCategories: taxonomyCategories,
+          evidence: place.wikidata_id ? { wikidataId: place.wikidata_id } : {},
+          cityMembership: { distanceKm: Number(row?.distance_km), radiusKm: 150, outsideCityBoundary: areaClass === 'nearby_escape_candidate', tourismSignificanceVerified: Boolean(place.wikidata_id) },
+        });
+        if (escapeClassification.categories.includes('nearby_escapes')) taxonomyCategories.push('nearby_escapes');
+        taxonomyCategories.sort();
+        const foodFacetsFromSources: string[] = taxonomyRecords.flatMap((value: any) =>
+          Array.isArray(value.foodFacets) ? value.foodFacets.filter((facet: unknown): facet is string => typeof facet === 'string') : [],
+        );
+        const foodFacets = [...new Set<string>(foodFacetsFromSources)].sort();
+        const hasOsmTaxonomy = taxonomyRecords.length > 0;
+        if (hasOsmTaxonomy && taxonomyRecords.every((value: any) => value.recommendationEligible === false)) return null;
         const publicSources = sources.map(({ payload: _payload, ...source }: any) => source);
         const isHttpsUrl = (value: unknown) => {
           if (typeof value !== "string") return false;
@@ -1181,6 +1218,11 @@ export default {
           && place.visit_duration_minutes > 0 && place.visit_duration_minutes <= 1440 && isHttpsUrl(place.visit_duration_source_url);
         const publicPlace = {
           ...place,
+          ...(hasOsmTaxonomy ? {
+            taxonomy_categories: taxonomyCategories,
+            food_facets: foodFacets,
+            recommendation_eligible: taxonomyRecords.some((value: any) => value.recommendationEligible === true),
+          } : {}),
           historical_points: historicalPoints,
           visiting_info: visitingInfo,
           visit_duration_verified: durationVerified,
@@ -1197,7 +1239,7 @@ export default {
         }
         return { ...row, ...(areaClass ? { area_class: areaClass } : {}), place: publicPlace };
       });
-      return json(publicRows);
+      return json(publicRows.filter(Boolean));
     }
 
     if (!isAdmin(request, env)) return json({ error: "Unauthorized" }, 401);

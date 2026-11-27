@@ -317,6 +317,8 @@ test("collection cycle uses persisted 150 km radius, resumes paged discovery, an
     assert.equal(upsert.body.p_place.latitude, 13.8);
     assert.equal(upsert.body.p_place.quality_score, 10);
     assert.equal(upsert.body.p_place.importance_score, 74);
+    assert.ok(upsert.body.p_source.payload.localise_taxonomy.categories.includes("scenic_spots"));
+    assert.deepEqual(upsert.body.p_source.payload.localise_taxonomy.foodFacets, []);
     assert.equal(upsert.body.p_source.attribution, "© OpenStreetMap contributors");
     assert.ok(harness.calls.some((call) => call.path === "rpc/finish_tourism_collection_cycle"));
     assert.ok(!harness.calls.some((call) => call.path === "tourism_collection_items"));
@@ -498,7 +500,7 @@ test("public places preserve browse-only route readiness and remove raw source p
     image_url: "https://commons.wikimedia.org/wiki/Special:FilePath/Charminar_at_Hyderabad_Telangana_India.jpg",
     image_source_url: "https://commons.wikimedia.org/wiki/File:Charminar_at_Hyderabad_Telangana_India.jpg",
     image_author: "Kavali Chandrakanth KCK", image_license: "CC BY-SA 4.0",
-    sources: [{ source_name: "openstreetmap", source_id: "way/1", source_url: "https://www.openstreetmap.org/way/1", attribution: "© OpenStreetMap contributors", license: "ODbL-1.0", payload: { private_stage: true } }],
+    sources: [{ source_name: "openstreetmap", source_id: "way/1", source_url: "https://www.openstreetmap.org/way/1", attribution: "© OpenStreetMap contributors", license: "ODbL-1.0", payload: { private_stage: true, localise_taxonomy: { categories: ["heritage"], foodFacets: [], exclusionReasons: [], recommendationEligible: true } } }],
   };
   const legacyPlace = { ...place, id: "99999999-9999-4999-8999-999999999999", canonical_name: "Golconda Fort" };
   delete legacyPlace.route_ready;
@@ -515,6 +517,9 @@ test("public places preserve browse-only route readiness and remove raw source p
     assert.deepEqual(rows.map((row) => row.place.route_ready), [false, false]);
     assert.equal(rows[0].place.sources[0].license, "ODbL-1.0");
     assert.equal(Object.hasOwn(rows[0].place.sources[0], "payload"), false);
+    assert.deepEqual(rows[0].place.taxonomy_categories, ["heritage"]);
+    assert.deepEqual(rows[0].place.food_facets, []);
+    assert.equal(rows[0].place.recommendation_eligible, true);
     assert.deepEqual(rows[0].place.historical_points, [place.historical_points[0]]);
     assert.deepEqual(rows[0].place.visiting_info, place.visiting_info);
     assert.equal(rows[0].place.image_source_url, place.image_source_url);
@@ -526,6 +531,41 @@ test("public places preserve browse-only route readiness and remove raw source p
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("public places suppress only records explicitly classified as irrelevant", async () => {
+  const source = { source_name: "openstreetmap", source_id: "way/1", source_url: "https://www.openstreetmap.org/way/1", attribution: "© OpenStreetMap contributors", license: "ODbL-1.0" };
+  const relevant = { id: "88888888-8888-4888-8888-888888888888", canonical_name: "Lake", review_status: "approved", is_active: true,
+    latitude: 17.4, longitude: 78.4, sources: [{ ...source, payload: { localise_taxonomy: { categories: ["lakes"], foodFacets: [], exclusionReasons: [], recommendationEligible: true } } }] };
+  const excluded = { ...relevant, id: "99999999-9999-4999-8999-999999999999", canonical_name: "Residential tower",
+    sources: [{ ...source, payload: { localise_taxonomy: { categories: [], foodFacets: [], exclusionReasons: ["residential_property"], recommendationEligible: false } } }] };
+  const harness = collectionHarness({ publicPlaces: [
+    { distance_km: 1, relevance_score: 50, place: relevant },
+    { distance_km: 2, relevance_score: 1, place: excluded },
+  ] });
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = harness.mockFetch;
+  try {
+    const response = await worker.fetch(new Request(`https://collector.test/public/places?city_id=${TEST_CITY_ID}`), harness.env);
+    const rows = await response.json();
+    assert.deepEqual(rows.map((row) => row.place.canonical_name), ["Lake"]);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("public API derives taxonomy from private legacy OSM tags when a saved result is absent", async () => {
+  const place = { id: "88888888-8888-4888-8888-888888888888", canonical_name: "Lake Viewpoint", category: "attraction", subcategory: "viewpoint",
+    review_status: "approved", is_active: true, latitude: 17.4, longitude: 78.4,
+    sources: [{ source_name: "openstreetmap", source_id: "node/10", source_url: "https://www.openstreetmap.org/node/10", attribution: "© OpenStreetMap contributors", license: "ODbL-1.0", payload: { tags: { tourism: "viewpoint", natural: "viewpoint" } } }] };
+  const harness = collectionHarness({ publicPlaces: [{ distance_km: 1, relevance_score: 20, place }] });
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = harness.mockFetch;
+  try {
+    const response = await worker.fetch(new Request(`https://collector.test/public/places?city_id=${TEST_CITY_ID}`), harness.env);
+    const [row] = await response.json();
+    assert.ok(row.place.taxonomy_categories.includes("scenic_spots"));
+    assert.equal(row.place.recommendation_eligible, true);
+    assert.equal(Object.hasOwn(row.place.sources[0], "payload"), false);
+  } finally { globalThis.fetch = originalFetch; }
 });
 
 test("admin stats paginate the new cycle queue beyond the PostgREST 1000-row window", async () => {

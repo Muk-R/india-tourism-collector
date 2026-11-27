@@ -1,7 +1,5 @@
 const MAX_ESCAPE_RADIUS_KM = 150;
 
-const arrays = (value: unknown): string[] => Array.isArray(value) ? value.map((item) => String(item).toLowerCase()) : [];
-
 function tourismEvidence(input: { evidence?: Record<string, unknown> }) {
   const evidence = input.evidence || {};
   return Boolean(evidence.officialTourismReference || evidence.wikidataId || evidence.wikidata_id || evidence.recognizedHeritageRegister);
@@ -11,12 +9,14 @@ function tourismEvidence(input: { evidence?: Record<string, unknown> }) {
 export function classifyTourismPlace(input: {
   place?: Record<string, any>;
   tags?: Record<string, string | undefined>;
+  baseCategories?: string[];
   evidence?: Record<string, unknown>;
   cityMembership?: { distanceKm?: number; radiusKm?: number; outsideCityBoundary?: boolean; tourismSignificanceVerified?: boolean };
 }) {
   const place = input.place || {};
   const tags = input.tags || {};
-  const categories = new Set<string>();
+  const categories = new Set<string>((input.baseCategories || []).filter((value) => typeof value === 'string'));
+  const foodFacets = new Set<string>();
   const exclusionReasons: string[] = [];
   const independentlyVerified = tourismEvidence(input) || Boolean(place.wikidata_id || place.wikidataId);
   const historyOrImportance = Number(place.importance_score || 0) > 0 || independentlyVerified;
@@ -24,7 +24,7 @@ export function classifyTourismPlace(input: {
   if (tags.natural === 'water' && ['lake', 'reservoir', 'pond'].includes(String(tags.water || ''))) categories.add('lakes');
   if (tags.landuse === 'reservoir') categories.add('lakes');
   if (tags.shop === 'mall') categories.add('shopping_malls');
-  if (tags.tourism === 'theme_park' || tags.leisure === 'water_park' || tags.leisure === 'amusement_arcade') categories.add('leisure_entertainment');
+  if (tags.tourism === 'theme_park' || ['water_park', 'amusement_park', 'amusement_arcade'].includes(String(tags.leisure || ''))) categories.add('leisure_entertainment');
   if (tags.tourism === 'museum') categories.add('museums');
   if (tags.amenity === 'marketplace' || tags.shop === 'marketplace') categories.add('local_shopping_markets');
   if (tags.amenity === 'place_of_worship' || tags.religion) categories.add('religious');
@@ -32,20 +32,41 @@ export function classifyTourismPlace(input: {
   if (tags.tourism === 'attraction' && categories.size === 0) categories.add('heritage');
   if (['park', 'garden', 'nature_reserve'].includes(String(tags.leisure || ''))) categories.add('parks_gardens');
   if (['peak', 'waterfall', 'beach', 'cave_entrance', 'viewpoint'].includes(String(tags.natural || ''))) categories.add('nature');
+  if (tags.natural === 'viewpoint' || tags.tourism === 'viewpoint' || tags.viewpoint) categories.add('scenic_spots');
   if (tags.tourism === 'zoo' || tags.leisure === 'nature_reserve') categories.add('wildlife');
-  if (tags.sport || tags.leisure === 'sports_centre') categories.add('adventure');
+  if (tags.leisure === 'adventure_park' || tags.adventure === 'yes') categories.add('adventure');
   if (tags.tourism === 'artwork' || tags.tourism === 'gallery' || tags.amenity === 'arts_centre') categories.add('arts_culture');
 
   const category = String(place.category || '').toLowerCase();
   const residential = tags.landuse === 'residential' || ['apartments', 'residential', 'house', 'residential_building'].includes(String(tags.building || ''));
-  const verifiedTouristStay = Boolean(input.evidence?.tourismAccommodationVerified || input.evidence?.officialAccommodationReference);
+  const touristStayTypes = new Set(['hotel', 'hostel', 'guest_house', 'motel', 'camp_site', 'alpine_hut', 'chalet', 'caravan_site']);
+  const verifiedTouristStay = Boolean(input.evidence?.tourismAccommodationVerified || input.evidence?.officialAccommodationReference)
+    || touristStayTypes.has(String(tags.tourism || ''));
   if (category === 'accommodation' && (residential || tags.tourism === 'apartment') && !verifiedTouristStay) {
     exclusionReasons.push('unverified_tourist_apartment');
   }
 
-  const minorMemorial = (tags.historic === 'memorial' || place.subcategory === 'memorial') && !historyOrImportance;
+  const minorMemorial = (tags.historic === 'memorial' || tags.memorial === 'statue' || place.subcategory === 'memorial') && !historyOrImportance;
   if (minorMemorial) exclusionReasons.push('minor_memorial_without_tourism_evidence');
   if (residential && !verifiedTouristStay) exclusionReasons.push('residential_property');
+
+  const foodEstablishments = new Set(['restaurant', 'cafe', 'fast_food', 'food_court', 'ice_cream', 'pub', 'bar', 'canteen', 'biergarten']);
+  const foodShops = new Set(['bakery', 'confectionery', 'pastry', 'deli', 'street_food']);
+  if (['food', 'restaurant', 'cafe'].includes(category) || foodEstablishments.has(String(tags.amenity || '')) || foodShops.has(String(tags.shop || ''))) {
+    categories.add('food');
+    if (tags.cuisine) foodFacets.add(`cuisine:${String(tags.cuisine).split(';').map((item) => item.trim().toLowerCase().replaceAll(' ', '_')).filter(Boolean).join('|')}`);
+    if (tags['diet:vegetarian'] === 'only') foodFacets.add('diet:pure_vegetarian');
+    else if (tags['diet:vegetarian'] === 'yes') foodFacets.add('diet:vegetarian_options');
+    if (tags['diet:non-vegetarian'] === 'yes' || tags['diet:meat'] === 'yes') foodFacets.add('diet:non_vegetarian');
+    if (tags['diet:vegan'] === 'only') foodFacets.add('diet:vegan');
+    if (tags['diet:jain'] === 'yes' || tags['diet:jain'] === 'only') foodFacets.add('diet:jain');
+    if (tags['diet:halal'] === 'yes' || tags['diet:halal'] === 'only') foodFacets.add('diet:halal');
+    if (tags.meal) for (const meal of String(tags.meal).split(';')) foodFacets.add(`meal:${meal.trim().toLowerCase()}`);
+    if (tags.amenity && foodEstablishments.has(tags.amenity)) foodFacets.add(`establishment:${tags.amenity}`);
+    if (tags.shop && foodShops.has(tags.shop)) foodFacets.add(`establishment:${tags.shop}`);
+  }
+
+  if (touristStayTypes.has(String(tags.tourism || '')) || (category === 'accommodation' && verifiedTouristStay)) categories.add('accommodation');
 
   if (category === 'attraction' && !residential && !minorMemorial) {
     const subcategory = String(place.subcategory || '').toLowerCase();
@@ -57,6 +78,7 @@ export function classifyTourismPlace(input: {
     else if (['market', 'bazaar', 'marketplace'].includes(subcategory)) categories.add('local_shopping_markets');
     else if (['park', 'garden'].includes(subcategory)) categories.add('parks_gardens');
     else if (['nature', 'waterfall', 'viewpoint', 'hill'].includes(subcategory)) categories.add('nature');
+    if (['scenic_spot', 'viewpoint'].includes(subcategory)) categories.add('scenic_spots');
     else if (subcategory) categories.add('heritage');
   }
 
@@ -72,7 +94,7 @@ export function classifyTourismPlace(input: {
   }
 
   const recommendationEligible = exclusionReasons.length === 0 && categories.size > 0;
-  return { categories: [...categories].sort(), exclusionReasons: [...new Set(exclusionReasons)], recommendationEligible };
+  return { categories: [...categories].sort(), foodFacets: [...foodFacets].sort(), exclusionReasons: [...new Set(exclusionReasons)], recommendationEligible };
 }
 
 export function evaluateFoodQuality(input: {
@@ -109,43 +131,4 @@ export function rankLandmarks<T extends { place?: Record<string, any>; distance_
   const tier = (row: T) => Number(row.place?.importance_score || (row as T & Record<string, any>).importance_score || 0);
   return [...rows].sort((a, b) => tier(b) - tier(a)
     || Number(a.distance_km ?? Number.POSITIVE_INFINITY) - Number(b.distance_km ?? Number.POSITIVE_INFINITY));
-}
-
-const get = (row: Record<string, any>, key: string) => row.place?.[key] ?? row[key];
-const verified = (row: Record<string, any>, key: string) => get(row, `${key}_verified`) === true;
-
-/** Shared evidence-gated filter for all Smart Trips modes; missing facts never pass. */
-export function filterSmartTripResults<T extends Record<string, any>>(rows: T[], mode: string, preferences: Record<string, any> = {}): T[] {
-  const check = (row: T, key: string) => verified(row, key);
-  return rows.filter((row) => {
-    const place = row.place || row;
-    if (place.review_status && place.review_status !== 'approved') return false;
-    if (mode === 'limited_time') {
-      const total = Number(get(row, 'visit_duration_minutes')) + Number(get(row, 'travel_minutes'));
-      if (!check(row, 'visit_duration') || !check(row, 'travel_minutes') || !Number.isFinite(total) || total > Number(preferences.availableMinutes)) return false;
-    } else if (mode === 'budget') {
-      if (!check(row, 'price_per_person') || Number(get(row, 'price_per_person')) > Number(preferences.budgetPerPerson)) return false;
-    } else if (mode === 'rainy_day') {
-      if (get(row, 'indoor_verified') !== true || get(row, 'indoor') !== true) return false;
-    } else if (mode === 'on_foot') {
-      if (!check(row, 'walkable') || get(row, 'walkable') !== true || !check(row, 'walk_cluster_id') || !get(row, 'walk_cluster_id')) return false;
-    } else if (mode === 'photography') {
-      if (get(row, 'scenic_verified') !== true || get(row, 'scenic') !== true) return false;
-      if (preferences.visitTime && (!check(row, 'photography_time') || !arrays(get(row, 'photography_times')).includes(String(preferences.visitTime)))) return false;
-    } else if (mode === 'along_route') {
-      if (!check(row, 'detour_km') || Number(get(row, 'detour_km')) > Number(preferences.maxDetourKm)) return false;
-    } else if (mode === 'limited_walking') {
-      if (!check(row, 'accessibility') || get(row, 'accessible') !== true) return false;
-    } else if (mode === 'hidden_gems') {
-      if (get(row, 'hidden_gem_verified') !== true || get(row, 'hidden_gem') !== true) return false;
-    } else if (mode === 'after_sunset') {
-      if (!check(row, 'evening_experience') || get(row, 'evening_experience') !== true || !check(row, 'opening_hours')) return false;
-    } else throw new TypeError(`Unknown Smart Trips mode: ${mode}`);
-    if (preferences.categories?.length) {
-      const categories = arrays(get(row, 'taxonomy_categories') ?? get(row, 'categories'));
-      if (!preferences.categories.some((category: string) => categories.includes(category.toLowerCase()))) return false;
-    }
-    if (preferences.maxWalkingMinutes != null && (!check(row, 'walking_minutes') || !Number.isFinite(Number(get(row, 'walking_minutes'))) || Number(get(row, 'walking_minutes')) > Number(preferences.maxWalkingMinutes))) return false;
-    return true;
-  });
 }

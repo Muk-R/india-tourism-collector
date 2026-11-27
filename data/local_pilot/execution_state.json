@@ -1,11 +1,11 @@
 {
   "version": 1,
-  "updated_at": "2026-11-26T17:39:06Z",
-  "active_task_id": "hyderabad_public_content_release",
+  "updated_at": "2026-11-26T21:11:08Z",
+  "active_task_id": "universal_tourism_taxonomy_integration",
   "session_status": "RUNNING",
   "next_phase": {
-    "session_a": "485 approved browse-only Hyderabad records are visible in the database (85 attractions, 200 food, 200 stays). Worker deployment 0e9f9dd9 is active; latest heritage-field Worker code and unranked-card frontend changes still require pilot deployment and live verification. Four attraction identity overlaps remain excluded; navigation/itinerary readiness is zero.",
-    "session_b": "Plan optimized shared regional extraction for the first 10 cities; reuse the verified bounded-memory pipeline and do not duplicate the Southern India download."
+    "session_a": "Universal taxonomy is implemented in online OSM collection, protected staging-to-publication trigger, Worker public projection, paginated Explore/Food filtering, and the shared evidence-gated Smart Trips filter. Current local evidence: Worker 50/50, Worker typecheck pass, website 20/20, no HTML mojibake. Current edits are not deployed. A prior checkpoint recorded 485 browse-only rows (85 attractions, 200 food, 200 stays); that live count was not reverified in this run and no after-count is available.",
+    "session_b": "Coordinate the stable taxonomy contract before shared integration. A previous outreach check found no designated Session B branch, PR, issue, agent handle, or approved channel; no Session B worktree was modified."
   },
   "tasks": [
     {
@@ -357,7 +357,42 @@
       "dependencies": [],
       "recovery": "Commit the tested Worker and Localise changes on their pilot branches; let hosted CI build/deploy and health-check. Then verify live paginated API counts and run Edge mobile/desktop checks. Keep 19 identity-conflict attractions and all unverified routes private.",
       "status": "RUNNING",
-      "checkpoint": "Website and Worker are now deployed through hosted CI and active at 100%. Live CI: homepage 200, config 200, schema asset 404, city API 200; Worker API returned 1 city and 100 approved, attributed Hyderabad rows. Production catalog 485 browse-only rows (85 attractions, 200 food, 200 stays), zero escapes or route-ready rows. Worker 38/38 tests plus typecheck; website 17/17 tests; local Edge mobile/desktop UI smoke passed with nine real rows behind local adapter. Direct live browser access is sandbox-blocked; login and social render only, not authenticated. Continue validating remaining source data privately; withhold 19 identity collisions and unreviewed broad data."
+      "checkpoint": "Website and Worker are now deployed through hosted CI and active at 100%. Live CI: homepage 200, config 200, schema asset 404, city API 200; Worker API returned 1 city and 100 approved, attributed Hyderabad rows. Production catalog 485 browse-only rows (85 attractions, 200 food, 200 stays), zero escapes or route-ready rows. Worker 38/38 tests plus typecheck; website 17/17 tests; local Edge mobile/desktop UI smoke passed with nine real rows behind local adapter. Direct live browser access is sandbox-blocked; login and social render only, not authenticated. Continue validating remaining source data privately; withhold 19 identity collisions and unreviewed broad data. Current caution (2026-11-26): these are prior checkpoint counts, not reverified after pending taxonomy edits."
+    },
+    {
+      "id": "universal_tourism_taxonomy_integration",
+      "status": "RUNNING",
+      "dependencies": [
+        "hyderabad_public_content_release"
+      ],
+      "checkpoint": "Implemented evidence-based multi-category taxonomy on online OSM collection save, private staging publication trigger, public API projection/fallback, and website Explore/Food pages. API pagination is fetched before category counts/filtering; 50 matches render per batch. One frontend Smart Trips engine now rejects unverified, missing, or invalid numeric inputs. Worker 50/50, tsc pass, website 20/20, git diff checks pass, and HTML matches baseline UTF-8 validity. The taxonomy SQL migration passed an earlier isolated PostgreSQL 17 run before the final scenic/adventure tag parity edit. Final rerun is blocked: the existing isolated cluster has no postgres login role; a fresh local cluster cannot bind loopback (Permission denied) even after scoped execution approval; Docker is not available to this shell. Headless Edge only captured the timed intro; no browser automation package/tool exists. Public Worker GET was blocked by sandbox networking. No live DB access or deployment performed.",
+      "tests": [
+        {
+          "command": "pnpm test",
+          "result": "passed: 50 tests"
+        },
+        {
+          "command": "pnpm exec tsc --noEmit",
+          "result": "passed"
+        },
+        {
+          "command": "node --test tests/*.test.mjs",
+          "result": "passed: 20 tests, including invalid/missing verified Smart Trips values"
+        },
+        {
+          "command": "git diff --check and UTF-8 baseline comparison",
+          "result": "passed: no whitespace errors, replacement characters, or common mojibake"
+        }
+      ],
+      "artifacts": [
+        "worker/src/tourism-data/taxonomy.ts",
+        "worker/src/index.ts",
+        "supabase/migrations/20261129_tourism_taxonomy.sql",
+        ".overnight/localise-website/tourism-api.js",
+        ".overnight/localise-website/index.html",
+        ".overnight/localise-website/styles.css"
+      ],
+      "recovery": "Rerun the final additive taxonomy migration against a fresh isolated PostgreSQL 17 cluster with a known local superuser. Then use an available authorized browser/network path to verify real API counts and renders. Do not query live Supabase or deploy from this worktree unless the assigned safety instructions are changed."
     }
   ],
   "history": [

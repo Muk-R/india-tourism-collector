@@ -2,18 +2,25 @@ name: Deploy tourism Worker
 
 on:
   push:
-    branches: [dev/session-a-hyderabad]
+    branches: [dev/session-a-hyderabad, dev/session-b-multicity, dev/session-c-enrichment]
     paths:
       - 'worker/src/**'
+      - 'worker/test/**'
       - 'worker/package.json'
       - 'worker/pnpm-lock.yaml'
       - 'worker/tsconfig.json'
       - 'worker/wrangler.toml'
+      - 'supabase/schema.sql'
+      - 'supabase/migrations/**'
+      - 'supabase/tests/**'
       - '.github/workflows/deploy-tourism-worker.yml'
   pull_request:
-    branches: [dev/session-a-hyderabad]
+    branches: [dev/session-a-hyderabad, dev/session-b-multicity, dev/session-c-enrichment]
     paths:
       - 'worker/**'
+      - 'supabase/schema.sql'
+      - 'supabase/migrations/**'
+      - 'supabase/tests/**'
       - 'contracts/openapi.yaml'
       - '.github/workflows/deploy-tourism-worker.yml'
   workflow_dispatch:
@@ -26,7 +33,65 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  database-migrations:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgis/postgis:17-3.7
+        env:
+          POSTGRES_DB: localise_ci
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: localise-ci-only-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d localise_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGDATABASE: localise_ci
+      PGUSER: postgres
+      PGPASSWORD: localise-ci-only-password
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+      - name: Prepare isolated Supabase-compatible roles and schemas
+        run: |
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          create role anon nologin;
+          create role authenticated nologin;
+          create role service_role nologin bypassrls;
+          create role supabase_realtime_admin nologin;
+          create role authenticator login noinherit;
+          grant anon, authenticated, service_role to authenticator;
+          create schema auth;
+          create schema storage;
+          create extension if not exists pgcrypto;
+          create extension if not exists postgis;
+          SQL
+      - name: Verify PostgreSQL and PostGIS versions
+        run: psql -v ON_ERROR_STOP=1 -c "select current_setting('server_version'), postgis_full_version()"
+      - name: Apply schema baseline and every additive migration in order
+        run: |
+          psql -v ON_ERROR_STOP=1 -f supabase/schema.sql
+          while IFS= read -r migration; do
+            echo "Applying isolated migration: $migration"
+            psql -v ON_ERROR_STOP=1 -f "$migration"
+          done < <(find supabase/migrations -maxdepth 1 -type f -name '*.sql' | sort)
+      - name: Verify private staging RLS and taxonomy publication trigger
+        run: |
+          psql -v ON_ERROR_STOP=1 -f supabase/tests/offline_pbf_staging.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/tests/tourism_taxonomy.sql
+
   verify:
+    needs: database-migrations
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -90,12 +155,28 @@ jobs:
           if (cities.some((city) => !city || typeof city.id !== 'string' || typeof city.name !== 'string')) throw new Error('/public/cities contains an invalid city shape');
           const hyderabad = cities.find((city) => city.name.toLowerCase() === 'hyderabad');
           if (!hyderabad) throw new Error('Hyderabad is not enabled in the tourism API');
-          const query = new URLSearchParams({ city_id: hyderabad.id, limit: '100', offset: '0' });
-          const places = await get(`/public/places?${query}`);
-          if (!Array.isArray(places)) throw new Error('/public/places must return a JSON array');
-          if (places.some((row) => !row?.place || row.place.review_status !== 'approved')) throw new Error('/public/places returned an invalid or unapproved record');
-          if (places.some((row) => !Array.isArray(row.place.sources) || !row.place.sources.some((source) => source.attribution && source.license))) throw new Error('/public/places contains a record without visible source attribution');
-          console.log(`Worker health passed; city records: ${cities.length}; Hyderabad public places: ${places.length}`);
+          const places = [];
+          for (let offset = 0; offset <= 10000; offset += 100) {
+            const query = new URLSearchParams({ city_id: hyderabad.id, limit: '100', offset: String(offset) });
+            const page = await get(`/public/places?${query}`);
+            if (!Array.isArray(page)) throw new Error('/public/places must return a JSON array');
+            places.push(...page);
+            if (page.length < 100) break;
+            if (offset === 10000) throw new Error('Public places pagination exceeded its safety bound');
+          }
+          const identities = new Set();
+          const categories = new Set();
+          for (const row of places) {
+            const place = row?.place;
+            if (!place || place.review_status !== 'approved') throw new Error('/public/places returned an invalid or unapproved record');
+            if (identities.has(place.id)) throw new Error('Public pagination returned duplicate place IDs');
+            identities.add(place.id);
+            if (!Array.isArray(place.sources) || !place.sources.length || place.sources.some((source) => !source.attribution || !source.license || !/^https?:\/\//.test(source.source_url || '') || Object.hasOwn(source, 'payload'))) throw new Error('/public/places contains missing attribution or private source payload');
+            if (place.taxonomy_categories) for (const category of place.taxonomy_categories) categories.add(category);
+            if (place.route_ready === true && (place.is_active !== true || !Number.isFinite(place.latitude) || !Number.isFinite(place.longitude))) throw new Error('Route-ready place lacks approved active coordinates');
+            if (place.route_ready !== true && place.route_ready !== false) throw new Error('route_ready must be an explicit boolean');
+          }
+          console.log(`Worker health passed; cities=${cities.length}; Hyderabad public rows=${places.length}; categories=${categories.size}`);
           NODE
       - name: Roll back failed deployment
         if: failure() && steps.health.outcome == 'failure'
