@@ -144,6 +144,27 @@ jobs:
           }
           console.log(`Worker target and API origin agree: ${workerName}`);
           NODE
+      - name: Check the current public API before uploading a new version
+        env:
+          API_ORIGIN: ${{ vars.TOURISM_API_ORIGIN }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const workerName = readFileSync('wrangler.toml','utf8').match(/^name\s*=\s*"([a-z0-9_-]+)"/m)?.[1];
+          const base = process.env.API_ORIGIN || `https://${workerName}.promoacc123123.workers.dev`;
+          const get = async (path) => {
+            const response = await fetch(new URL(path,base),{signal:AbortSignal.timeout(15000),cache:'no-store'});
+            if (!response.ok) throw new Error(`Current ${path} returned HTTP ${response.status}; refusing deployment`);
+            return response.json();
+          };
+          const health = await get('/health');
+          if (health?.ok !== true) throw new Error('Current Worker health check failed; refusing deployment');
+          const cities = await get('/public/cities');
+          if (!Array.isArray(cities) || !cities.some((city) => String(city?.name).toLowerCase() === 'hyderabad')) {
+            throw new Error('Current public city API is incompatible; refusing deployment');
+          }
+          console.log('Current public Worker API is healthy; deployment may proceed');
+          NODE
       - run: pnpm test
       - run: pnpm typecheck
       - run: pnpm exec wrangler deploy --dry-run --outdir .wrangler/deploy-check
