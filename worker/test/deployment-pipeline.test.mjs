@@ -11,7 +11,11 @@ test('hosted Worker release workflow migrates isolated PostgreSQL/PostGIS before
   assert.match(workflow, /postgis\/postgis:17-3\.7/);
   assert.match(workflow, /targets the Worker in Wrangler configuration/);
   assert.match(workflow, /Check the current public API before uploading a new version/);
-  assert.match(workflow, /if: github\.event_name == 'push' && github\.ref == 'refs\/heads\/dev\/session-a-hyderabad'/);
+  assert.match(workflow, /recovery_release:[\s\S]*?type: boolean[\s\S]*?default: false/);
+  assert.match(workflow, /recovery_reason:[\s\S]*?required: true/);
+  assert.match(workflow, /inputs\.recovery_release != true/);
+  assert.match(workflow, /Confirm separately authorized recovery request/);
+  assert.match(workflow, /environment: hyderabad-pilot/);
   assert.match(workflow, /https:\/\/india-tourism-collector\.promoacc123123\.workers\.dev/);
   assert.ok(workflow.indexOf('pnpm test') < workflow.indexOf('Check the current public API before uploading a new version'));
   assert.ok(workflow.indexOf('pnpm typecheck') < workflow.indexOf('Check the current public API before uploading a new version'));
@@ -19,6 +23,7 @@ test('hosted Worker release workflow migrates isolated PostgreSQL/PostGIS before
   assert.match(workflow, /supabase\/migrations/);
   assert.match(workflow, /supabase\/tests\/tourism_taxonomy\.sql/);
   assert.match(workflow, /needs:\s*verify/);
+  assert.match(workflow, /Roll back failed deployment/);
   assert.match(workflow, /dev\/session-b-multicity/);
   assert.match(workflow, /dev\/session-c-enrichment/);
   assert.match(taxonomyTest, /localise_taxonomy/);

@@ -196,11 +196,35 @@ async function db(env: Env, path: string, init: RequestInit = {}) {
   });
 
   if (!response.ok) {
-    throw new Error(`Supabase ${response.status}: ${(await response.text()).slice(0, 400)}`);
+    const responseBody = (await response.text()).slice(0, 400);
+    let upstreamCode: string | undefined;
+    try {
+      const parsed = JSON.parse(responseBody);
+      if (typeof parsed?.code === "string" && /^[A-Z0-9]{4,16}$/.test(parsed.code)) upstreamCode = parsed.code;
+    } catch { /* Keep the upstream response body out of diagnostics. */ }
+    const error = new Error(`Supabase ${response.status}: ${responseBody}`) as Error & { upstreamStatus: number; upstreamCode?: string };
+    error.upstreamStatus = response.status;
+    error.upstreamCode = upstreamCode;
+    throw error;
   }
   if (response.status === 204) return null;
   const body = await response.text();
   return body ? JSON.parse(body) : null;
+}
+
+function safeDatabaseDiagnostic(error: unknown) {
+  if (error && typeof error === "object" && "upstreamStatus" in error) {
+    const status = (error as { upstreamStatus?: unknown }).upstreamStatus;
+    const code = (error as { upstreamCode?: unknown }).upstreamCode;
+    return {
+      kind: "postgrest_http",
+      ...(typeof status === "number" ? { status } : {}),
+      ...(typeof code === "string" && /^[A-Z0-9]{4,16}$/.test(code) ? { code } : {}),
+    };
+  }
+  if (error instanceof TypeError) return { kind: "fetch_or_configuration" };
+  if (error instanceof SyntaxError) return { kind: "invalid_upstream_json" };
+  return { kind: "database_request" };
 }
 
 function score(place: Place) {
@@ -1138,7 +1162,8 @@ export default {
             "tourism_cities?select=id,name,state_name,latitude,longitude,radius_km&is_enabled=eq.true&order=name.asc",
           ),
         );
-      } catch {
+      } catch (error) {
+        console.error("public_cities_upstream_failure", safeDatabaseDiagnostic(error));
         return json({ error: "Tourism data service unavailable." }, 502);
       }
     }
@@ -1162,7 +1187,8 @@ export default {
           env,
           `tourism_city_places?select=distance_km,relevance_score,place:tourism_places!inner(id,canonical_name,category,subcategory,latitude,longitude,address,description,description_source,description_license,website_url,phone,wikipedia_url,image_url,image_source_url,image_author,image_license,historical_points,visiting_info,visit_duration_minutes,visit_duration_verified,visit_duration_source_url,importance_score,quality_score,review_status,route_ready,sources:tourism_place_sources(source_name,source_id,source_url,attribution,license,payload))&city_id=eq.${encode(cityId)}&is_current=eq.true&place.review_status=eq.approved&place.is_active=eq.true&order=place(importance_score).desc,relevance_score.desc&limit=${limit}&offset=${offset}`,
         );
-      } catch {
+      } catch (error) {
+        console.error("public_places_upstream_failure", safeDatabaseDiagnostic(error));
         return json({ error: "Tourism places service unavailable." }, 502);
       }
       const publicRows = (Array.isArray(rows) ? rows : []).map((row: any) => {

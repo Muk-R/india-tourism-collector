@@ -24,6 +24,16 @@ on:
       - 'contracts/openapi.yaml'
       - '.github/workflows/deploy-tourism-worker.yml'
   workflow_dispatch:
+    inputs:
+      recovery_release:
+        description: 'Use the separately authorized recovery path when the current live API preflight is unhealthy.'
+        type: boolean
+        required: true
+        default: false
+      recovery_reason:
+        description: 'Incident/change reference for the protected recovery deployment.'
+        type: string
+        required: true
 
 permissions:
   contents: read
@@ -148,7 +158,7 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm exec wrangler deploy --dry-run --outdir .wrangler/deploy-check
       - name: Check the current public API before uploading a new version
-        if: github.event_name == 'push' && github.ref == 'refs/heads/dev/session-a-hyderabad'
+        if: (github.event_name == 'push' && github.ref == 'refs/heads/dev/session-a-hyderabad') || (github.event_name == 'workflow_dispatch' && inputs.recovery_release != true)
         env:
           API_ORIGIN: ${{ vars.TOURISM_API_ORIGIN }}
         run: |
@@ -171,7 +181,7 @@ jobs:
           NODE
 
   deploy:
-    if: github.ref == 'refs/heads/dev/session-a-hyderabad' && (github.event_name == 'workflow_dispatch' || github.event_name == 'push')
+    if: github.ref == 'refs/heads/dev/session-a-hyderabad' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.recovery_release == true || needs.verify.result == 'success')))
     needs: verify
     runs-on: ubuntu-latest
     environment: hyderabad-pilot
@@ -180,6 +190,16 @@ jobs:
         working-directory: worker
     steps:
       - uses: actions/checkout@v6
+      - name: Confirm separately authorized recovery request
+        if: github.event_name == 'workflow_dispatch' && inputs.recovery_release == true
+        env:
+          RECOVERY_REASON: ${{ inputs.recovery_reason }}
+        run: |
+          if [[ -z "${RECOVERY_REASON//[[:space:]]/}" ]]; then
+            echo 'Recovery dispatch requires a non-empty incident/change reference.' >&2
+            exit 1
+          fi
+          echo 'Recovery mode selected; existing hyderabad-pilot environment approval remains required.'
       - uses: pnpm/action-setup@v4
         with:
           version: 10

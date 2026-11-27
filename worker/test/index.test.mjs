@@ -488,6 +488,30 @@ test("public places and admin review exclude retired city-place links", async ()
   }
 });
 
+test("public cities report only sanitized upstream failure diagnostics", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalConsoleError = console.error;
+  const diagnostics = [];
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    code: "PGRST204",
+    message: "private schema detail that must not be logged",
+  }), { status: 400, headers: { "Content-Type": "application/json" } });
+  console.error = (...args) => diagnostics.push(args);
+  try {
+    const response = await worker.fetch(new Request("https://collector.test/public/cities"), {
+      SUPABASE_URL: "https://supabase.test",
+      SUPABASE_SECRET_KEY: "mock-secret-key",
+    });
+    assert.equal(response.status, 502);
+    assert.deepEqual(await response.json(), { error: "Tourism data service unavailable." });
+    assert.deepEqual(diagnostics, [["public_cities_upstream_failure", { kind: "postgrest_http", status: 400, code: "PGRST204" }]]);
+    assert.doesNotMatch(JSON.stringify(diagnostics), /private schema detail|mock-secret-key/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    console.error = originalConsoleError;
+  }
+});
+
 test("public places preserve browse-only route readiness and remove raw source payloads", async () => {
   const place = {
     id: "88888888-8888-4888-8888-888888888888", canonical_name: "Charminar", review_status: "approved",
