@@ -128,6 +128,22 @@ jobs:
           cache: pnpm
           cache-dependency-path: worker/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
+      - name: Confirm API origin targets the Worker in Wrangler configuration
+        env:
+          API_ORIGIN: ${{ vars.TOURISM_API_ORIGIN }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const config = readFileSync('wrangler.toml', 'utf8');
+          const workerName = config.match(/^name\s*=\s*"([a-z0-9_-]+)"/m)?.[1];
+          if (!workerName) throw new Error('Could not determine the Worker name from wrangler.toml');
+          const origin = new URL(process.env.API_ORIGIN || `https://${workerName}.promoacc123123.workers.dev`);
+          if (origin.protocol !== 'https:') throw new Error('TOURISM_API_ORIGIN must use HTTPS');
+          if (origin.hostname.endsWith('.workers.dev') && origin.hostname !== `${workerName}.promoacc123123.workers.dev`) {
+            throw new Error(`TOURISM_API_ORIGIN targets a different Worker than wrangler.toml (${workerName}); update the Actions variable before deployment`);
+          }
+          console.log(`Worker target and API origin agree: ${workerName}`);
+          NODE
       - run: pnpm test
       - run: pnpm typecheck
       - run: pnpm exec wrangler deploy --dry-run --outdir .wrangler/deploy-check
@@ -162,7 +178,7 @@ jobs:
           API_ORIGIN: ${{ vars.TOURISM_API_ORIGIN }}
         run: |
           node --input-type=module <<'NODE'
-          const base = process.env.API_ORIGIN || 'https://hyderabad-pilot-india-tourism-collector.promoacc123123.workers.dev';
+          const base = process.env.API_ORIGIN || 'https://india-tourism-collector.promoacc123123.workers.dev';
           if (new URL(base).protocol !== 'https:') throw new Error('TOURISM_API_ORIGIN must use HTTPS');
           const get = async (path) => {
             const response = await fetch(new URL(path, base), { signal: AbortSignal.timeout(15000) });

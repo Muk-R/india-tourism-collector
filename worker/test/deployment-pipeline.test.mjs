@@ -9,6 +9,8 @@ test('hosted Worker release workflow migrates isolated PostgreSQL/PostGIS before
   const taxonomyTest = await readFile(new URL('supabase/tests/tourism_taxonomy.sql', root), 'utf8');
   const fixtures = await readFile(new URL('supabase/tests/heritage_content_fixtures.sql', root), 'utf8');
   assert.match(workflow, /postgis\/postgis:17-3\.7/);
+  assert.match(workflow, /targets the Worker in Wrangler configuration/);
+  assert.match(workflow, /https:\/\/india-tourism-collector\.promoacc123123\.workers\.dev/);
   assert.match(workflow, /supabase\/migrations/);
   assert.match(workflow, /supabase\/tests\/tourism_taxonomy\.sql/);
   assert.match(workflow, /needs:\s*verify/);
