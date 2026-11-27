@@ -1,0 +1,28 @@
+name: Deploy tourism Worker
+
+on:
+  workflow_dispatch:
+    inputs:
+      recovery_release:
+        description: 'Use the protected recovery path for the Hyderabad pilot.'
+        type: boolean
+        required: true
+        default: false
+      recovery_reason:
+        description: 'Incident/change reference required for a recovery run.'
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  default-branch-entrypoint:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Explain the non-deploying default-branch entrypoint
+        run: |
+          echo 'This default-branch workflow only enables the GitHub Actions Run workflow control.'
+          echo 'For the protected Hyderabad recovery deployment, select dev/session-a-hyderabad in the branch selector.'
+          echo 'The selected development-branch workflow runs isolated migrations and tests, then requires the hyderabad-pilot environment approval and post-deployment rollback checks.'
