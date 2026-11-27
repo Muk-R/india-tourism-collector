@@ -11,6 +11,8 @@ test('hosted Worker release workflow migrates isolated PostgreSQL/PostGIS before
   assert.match(workflow, /postgis\/postgis:17-3\.7/);
   assert.match(workflow, /targets the Worker in Wrangler configuration/);
   assert.match(workflow, /Check the current public API before uploading a new version/);
+  assert.match(workflow, /Promise\.all\(\[get\('\/health'\), get\('\/public\/cities'\)\]\)/);
+  assert.match(workflow, /\/public\/places\?city_id=/);
   assert.match(workflow, /recovery_release:[\s\S]*?type: boolean[\s\S]*?default: false/);
   assert.match(workflow, /recovery_reason:[\s\S]*?required: true/);
   assert.match(workflow, /inputs\.recovery_release != true/);

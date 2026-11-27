@@ -168,14 +168,22 @@ jobs:
           const base = process.env.API_ORIGIN || `https://${workerName}.promoacc123123.workers.dev`;
           const get = async (path) => {
             const response = await fetch(new URL(path,base),{signal:AbortSignal.timeout(15000),cache:'no-store'});
-            if (!response.ok) throw new Error(`Current ${path} returned HTTP ${response.status}; refusing deployment`);
-            return response.json();
+            let body = null;
+            try { body = await response.json(); } catch { /* Report status and shape only. */ }
+            return { status: response.status, body };
           };
-          const health = await get('/health');
-          if (health?.ok !== true) throw new Error('Current Worker health check failed; refusing deployment');
-          const cities = await get('/public/cities');
-          if (!Array.isArray(cities) || !cities.some((city) => String(city?.name).toLowerCase() === 'hyderabad')) {
-            throw new Error('Current public city API is incompatible; refusing deployment');
+          const [health, cities] = await Promise.all([get('/health'), get('/public/cities')]);
+          const hyderabad = Array.isArray(cities.body) ? cities.body.find((city) => String(city?.name).toLowerCase() === 'hyderabad') : null;
+          const cityId = typeof hyderabad?.id === 'string' ? hyderabad.id : 'c06387bf-0721-4c0f-9374-1cc641b4d106';
+          const places = await get(`/public/places?city_id=${encodeURIComponent(cityId)}&limit=1`);
+          const shape = (body) => Array.isArray(body) ? 'array' : body && typeof body === 'object' ? 'object' : typeof body;
+          console.log(JSON.stringify({ health: { status: health.status, shape: shape(health.body) }, cities: { status: cities.status, shape: shape(cities.body) }, places: { status: places.status, shape: shape(places.body) } }));
+          if (health.status !== 200 || health.body?.ok !== true) throw new Error('Current Worker health check failed; refusing deployment');
+          if (cities.status !== 200 || !hyderabad) {
+            throw new Error(`Current /public/cities returned HTTP ${cities.status}; refusing deployment`);
+          }
+          if (places.status !== 200 || !Array.isArray(places.body)) {
+            throw new Error(`Current /public/places returned HTTP ${places.status}; refusing deployment`);
           }
           console.log('Current public Worker API is healthy; deployment may proceed');
           NODE
