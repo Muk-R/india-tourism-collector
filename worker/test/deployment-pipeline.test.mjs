@@ -11,6 +11,7 @@ test('hosted Worker release workflow migrates isolated PostgreSQL/PostGIS before
   assert.match(workflow, /postgis\/postgis:17-3\.7/);
   assert.match(workflow, /targets the Worker in Wrangler configuration/);
   assert.match(workflow, /Check the current public API before uploading a new version/);
+  assert.match(workflow, /if: github\.event_name == 'push' && github\.ref == 'refs\/heads\/dev\/session-a-hyderabad'/);
   assert.match(workflow, /https:\/\/india-tourism-collector\.promoacc123123\.workers\.dev/);
   assert.ok(workflow.indexOf('pnpm test') < workflow.indexOf('Check the current public API before uploading a new version'));
   assert.ok(workflow.indexOf('pnpm typecheck') < workflow.indexOf('Check the current public API before uploading a new version'));

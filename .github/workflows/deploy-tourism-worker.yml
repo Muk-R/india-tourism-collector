@@ -148,6 +148,7 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm exec wrangler deploy --dry-run --outdir .wrangler/deploy-check
       - name: Check the current public API before uploading a new version
+        if: github.event_name == 'push' && github.ref == 'refs/heads/dev/session-a-hyderabad'
         env:
           API_ORIGIN: ${{ vars.TOURISM_API_ORIGIN }}
         run: |
