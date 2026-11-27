@@ -12,6 +12,8 @@ test('hosted Worker release workflow migrates isolated PostgreSQL/PostGIS before
   assert.match(workflow, /targets the Worker in Wrangler configuration/);
   assert.match(workflow, /Check the current public API before uploading a new version/);
   assert.match(workflow, /https:\/\/india-tourism-collector\.promoacc123123\.workers\.dev/);
+  assert.ok(workflow.indexOf('pnpm test') < workflow.indexOf('Check the current public API before uploading a new version'));
+  assert.ok(workflow.indexOf('pnpm typecheck') < workflow.indexOf('Check the current public API before uploading a new version'));
   assert.ok(workflow.indexOf('Check the current public API before uploading a new version') < workflow.indexOf('Deploy to the existing tourism pilot Worker'));
   assert.match(workflow, /supabase\/migrations/);
   assert.match(workflow, /supabase\/tests\/tourism_taxonomy\.sql/);
