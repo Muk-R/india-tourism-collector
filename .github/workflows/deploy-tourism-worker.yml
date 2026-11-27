@@ -81,10 +81,28 @@ jobs:
       - name: Apply schema baseline and every additive migration in order
         run: |
           psql -v ON_ERROR_STOP=1 -f supabase/schema.sql
-          while IFS= read -r migration; do
+          migration_order=(
+            supabase/migrations/20261124_collection_cycles.sql
+            supabase/migrations/20261125_offline_pbf_staging.sql
+            supabase/migrations/20261126_route_readiness.sql
+            supabase/migrations/20261127_public_places_api_compat.sql
+            supabase/migrations/20261128_offline_pbf_publication.sql
+            supabase/migrations/20261126143000_offline_pbf_attribution_encoding_repair.sql
+            supabase/migrations/20261126150000_offline_pbf_wikidata_reconciliation.sql
+            supabase/migrations/20261126164621_heritage_card_content_20261126.sql
+            supabase/migrations/20261126180000_heritage_fee_encoding.sql
+            supabase/migrations/20261129_tourism_taxonomy.sql
+          )
+          mapfile -t actual_migrations < <(find supabase/migrations -maxdepth 1 -type f -name '*.sql' | sort)
+          if [[ "${#actual_migrations[@]}" -ne "${#migration_order[@]}" ]]; then
+            echo 'Migration inventory changed; update the reviewed dependency order.' >&2
+            exit 1
+          fi
+          for migration in "${migration_order[@]}"; do
+            if [[ ! -f "$migration" ]]; then echo "Missing reviewed migration: $migration" >&2; exit 1; fi
             echo "Applying isolated migration: $migration"
             psql -v ON_ERROR_STOP=1 -f "$migration"
-          done < <(find supabase/migrations -maxdepth 1 -type f -name '*.sql' | sort)
+          done
       - name: Verify private staging RLS and taxonomy publication trigger
         run: |
           psql -v ON_ERROR_STOP=1 -f supabase/tests/offline_pbf_staging.sql

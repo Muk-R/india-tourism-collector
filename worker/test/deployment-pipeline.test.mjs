@@ -16,4 +16,7 @@ test('hosted Worker release workflow migrates isolated PostgreSQL/PostGIS before
   assert.match(taxonomyTest, /localise_taxonomy/);
   assert.match(taxonomyTest, /has_function_privilege\('anon'/);
   assert.match(taxonomyTest, /nearby_escapes|scenic_spots/);
+  assert.ok(workflow.indexOf('20261128_offline_pbf_publication.sql') < workflow.indexOf('20261126143000_offline_pbf_attribution_encoding_repair.sql'));
+  assert.ok(workflow.indexOf('20261126143000_offline_pbf_attribution_encoding_repair.sql') < workflow.indexOf('20261126150000_offline_pbf_wikidata_reconciliation.sql'));
+  assert.ok(workflow.indexOf('20261129_tourism_taxonomy.sql') > workflow.indexOf('20261126180000_heritage_fee_encoding.sql'));
 });
